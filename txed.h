@@ -1,44 +1,47 @@
-/*
-  Object model for a text editor with easy undo/redo
-
-  Vadim Vinnik, 2016
-  e-mail: vadim.vinnik@gmail.com
-*/
+//  Object model for a text editor with easy undo/redo
+//
+//  Vadim Vinnik
+//  vadim.vinnik@gmail.com
+//  2016
 
 #include <string>
 #include <memory>
+#include <cstddef>
+
+class iterator_const_helper;
+class iterator_selection_helper;
+class iterator_patch_helper;
+
+struct iterator_mismatch_exception {};
+struct out_of_range_exception {};
+
+// Performs all the hard work implementing the actual behaviour of the iterator.
+// Then the iterator class itself just wraps this worker object into a rich
+// interface required by the Random access iterator notion defined in STL.
+// Each concrete text object class must define its own implementation of this
+// base class.
+class iterator_helper_base
+{
+  public:
+    virtual iterator_helper_base *clone() const = 0;
+    virtual char value() const = 0;
+    virtual void move(int d) = 0;
+    virtual ptrdiff_t diff(iterator_helper_base const& it) = 0;
+
+    // Visitor pattern in diff() to resolve the actual subtype of the 2nd argument
+    virtual ptrdiff_t diff_const(iterator_const_helper const& it) const = 0;
+    virtual ptrdiff_t diff_selection(iterator_selection_helper const& it) const = 0;
+    virtual ptrdiff_t diff_patch(iterator_patch_helper const& it) const = 0;
+};
 
 class TextBase
 {
   protected:
-    // Performs all the hard work implementing the actual behaviour of the iterator.
-    // Then the iterator class itself just wraps this worker object into a rich
-    // interface required by the Random access iterator notion defined in STL.
-    // Each concrete text object class must define its own implementation of this
-    // base class.
-    class iterator_helper_base
-    {
-      protected:
-        // Visitor pattern in diff() to resolve the actual subtype of the 2nd argument
-        virtual diff_t diff_const(TextConst::iterator_helper const& it) const = 0;
-        virtual diff_t diff_selection(TextSelection::iterator_helper const& it) const = 0;
-        virtual diff_t diff_patch(TextPatch::iterator_helper const& it) const = 0;
-
-      public:
-        virtual iterator_helper_base *clone() const = 0;
-        virtual char value() const = 0;
-        virtual void move(int d) = 0;
-        virtual diff_t diff(iterator_helper_base const& it) = 0;
-    };
-
     // Each concrete text object class must define its own pair of factory methods
     virtual iterator_helper_base *begin_helper() const = 0;
     virtual iterator_helper_base *end_helper() const = 0;
 
   public:
-    struct iterator_mismatch_exception {};
-    struct out_of_range_exception {};
-
     // Text object iterator is non-abstract class and does not need to be redefined
     // for particular text objects. It just delegates everything to a helper object
     // that is aware of the particular text object subclass.
@@ -46,7 +49,7 @@ class TextBase
     {
       private:
         std::unique_ptr<iterator_helper_base> m_helper;
-        diff_t diff(iterator const& it) const { return m_helper->diff(it.m_helper); }
+        ptrdiff_t diff(iterator const& it) const { return m_helper->diff(*it.m_helper); }
 
       public:
         // non-dereferenceable
@@ -59,10 +62,10 @@ class TextBase
           {}
 
         iterator(iterator const& it):
-          m_helper(it.helper->clone())
+          m_helper(it.m_helper->clone())
           {}
 
-        iterator& operator=(iterator const& it) { m_helper.reset(it.m_helper->clone(); return *this; }
+        iterator& operator=(iterator const& it) { m_helper.reset(it.m_helper->clone()); return *this; }
 
         char operator*() const { return m_helper->value(); }
         char operator[](int d) const { return *(*this + d); }
@@ -83,12 +86,10 @@ class TextBase
         iterator& operator+=(int d) { m_helper->move(+d); return *this; }
         iterator& operator-=(int d) { m_helper->move(-d); return *this; }
 
-        iterator operator+(int d) const { iterator t(*this); return t += d }
-        iterator operator-(int d) const { iterator t(*this); return t -= d }
+        iterator operator+(int d) const { iterator t(*this); return t += d; }
+        iterator operator-(int d) const { iterator t(*this); return t -= d; }
 
-        static iterator operator+(int d, iterator const& it) { return it + d; }
-
-        diff_t operator-(iterator const& it) const { return diff(it); }
+        ptrdiff_t operator-(iterator const& it) const { return diff(it); }
     };
 
     iterator const_begin() const { return iterator(begin_helper()); }
@@ -105,36 +106,36 @@ class TextBase
     // todo: convert index() to a non-virtual method with assertion delegating to a protected helper
 };
 
+static TextBase::iterator operator+(int d, TextBase::iterator const& it) { return it + d; }
+
+class iterator_const_helper : public iterator_helper_base
+{
+  private:
+    std::string::const_iterator m_current;
+
+  public:
+    iterator_const_helper(std::string::const_iterator current):
+      m_current(current)
+    {}
+
+    virtual iterator_helper_base *clone() const { return new iterator_const_helper(*this); }
+    virtual char value() const { return *m_current; }
+    virtual void move(int d) { m_current += d; }
+    virtual ptrdiff_t diff(iterator_helper_base const& it) { return it.diff_const(*this); }
+
+    virtual ptrdiff_t diff_const(iterator_const_helper const& it) const { return it.m_current - m_current; }
+    virtual ptrdiff_t diff_selection(iterator_selection_helper const& it) const { throw iterator_mismatch_exception(); }
+    virtual ptrdiff_t diff_patch(iterator_patch_helper const& it) const { throw iterator_mismatch_exception(); }
+};
+
 class TextConst : public TextBase
 {
   private:
     std::string m_value;
 
   protected:
-    class iterator_helper : public iterator_helper_base
-    {
-      private:
-        std::string::const_iterator m_current;
-
-      protected:
-        virtual diff_t diff_const(TextConst::iterator_helper const& it) const { return it.m_current - m_current; }
-        virtual diff_t diff_selection(TextSelection::iterator_helper const& it) const { throw iterator_mismatch_exception(); }
-        virtual diff_t diff_patch(TextPatch::iterator_helper const& it) const { throw iterator_mismatch_exception(); }
-
-      public:
-        iterator_helper(std::string::const_iterator current):
-          m_current(current)
-        {}
-
-        virtual iterator_helper_base *clone() const { return new iterator_helper(*this); }
-        virtual char value() const { return *m_current; }
-        virtual void move(int d) { m_current += d; }
-        virtual diff_t diff(iterator_helper_base const& it) { return it.diff_const(*this); }
-    };
-
-    virtual iterator_helper_base *begin_helper() const { return new iterator_helper(m_value.const_begin()); }
-    virtual iterator_helper_base *end_helper() const { return new iterator_helper(m_value.const_end()); }
-
+    virtual iterator_helper_base *begin_helper() const { return new iterator_const_helper(m_value.cbegin()); }
+    virtual iterator_helper_base *end_helper() const { return new iterator_const_helper(m_value.cend()); }
 
   public:
     TextConst(std::string value): m_value(value) {}
@@ -159,13 +160,12 @@ class TextSegmentBase : public TextBase
     {}
 };
 
+class iterator_selection_helper : public iterator_helper_base
+{
+};
+
 class TextSelection : public TextSegmentBase
 {
-  protected:
-    class iterator_helper : public iterator_helper_base
-    {
-    };
-
   public:
     TextSelection(TextBase const* base, int start, int length):
       TextSegmentBase(base, start, length)
@@ -175,15 +175,14 @@ class TextSelection : public TextSegmentBase
     virtual char index(int i) const { return m_base->index(i + m_start); }
 };
 
+class iterator_patch_helper : public iterator_helper_base
+{
+};
+
 class TextPatch : public TextSegmentBase
 {
   private:
     TextBase const* const m_patch;
-
-  protected:
-    class iterator_helper : public iterator_helper_base
-    {
-    };
 
   public:
     TextPatch(TextBase const* base, int start, int length, TextBase const* patch):
