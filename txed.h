@@ -13,6 +13,8 @@ class TextBase
     // Performs all the hard work implementing the actual behaviour of the iterator.
     // Then the iterator class itself just wraps this worker object into a rich
     // interface required by the Random access iterator notion defined in STL.
+    // Each concrete text object class must define its own implementation of this
+    // base class.
     class iterator_helper_base
     {
       protected:
@@ -22,32 +24,64 @@ class TextBase
         virtual diff_t diff_patch(TextPatch::iterator_helper const& it) const = 0;
 
       public:
+        virtual iterator_helper_base *clone() const = 0;
         virtual char value() const = 0;
         virtual void move(int d) = 0;
         virtual diff_t diff(iterator_helper_base const& it) = 0;
     };
 
+    // Each concrete text object class must define its own pair of factory methods
     virtual iterator_helper_base *begin_helper() const = 0;
     virtual iterator_helper_base *end_helper() const = 0;
 
   public:
+    // Text object iterator is non-abstract class and does not need to be redefined
+    // for particular text objects. It just delegates everything to a helper object
+    // that is aware of the particular text object subclass.
     class iterator
     {
       private:
-        iterator_helper_base *m_helper;
+        iterator_helper_base *m_helper; // todo: to auto_ptr or other smart ptr
         diff_t diff(iterator const& it) const { return m_helper->diff(it.m_helper); }
 
       public:
+        // non-dereferenceable
+        iterator():
+          m_helper(NULL)
+          {}
+
         iterator(iterator_helper_base *helper):
           m_helper(helper)
           {}
 
-        // todo: all operations from random access iterator protocol
-        iterator& operator++() { m_helper->move(1); return *this; }
-        iterator& operator--() { m_helper->move(-1); return *this; }
+        ~iterator() { delete m_helper; }
+
+        // todo: copy constructor, assignment, return constructor, return assignment
+
         char operator*() const { return m_helper->value(); }
+        char operator[](int d) const { return *(*this + d); }
+
         bool operator==(iterator const& it) const { return diff(it) == 0; }
         bool operator!=(iterator const& it) const { return diff(it) != 0; }
+        bool operator< (iterator const& it) const { return diff(it) <  0; }
+        bool operator> (iterator const& it) const { return diff(it) >  0; }
+        bool operator<=(iterator const& it) const { return diff(it) <= 0; }
+        bool operator>=(iterator const& it) const { return diff(it) >= 0; }
+
+        iterator& operator++() { m_helper->move(+1); return *this; }
+        iterator& operator--() { m_helper->move(-1); return *this; }
+
+        iterator operator++(int) { iterator t(*this); m_helper->move(+1); return t; }
+        iterator operator--(int) { iterator t(*this); m_helper->move(-1); return t; }
+
+        iterator& operator+=(int d) { m_helper->move(+d); return *this; }
+        iterator& operator-=(int d) { m_helper->move(-d); return *this; }
+
+        iterator operator+(int d) const { iterator t(*this); return t += d }
+        iterator operator-(int d) const { iterator t(*this); return t -= d }
+
+        static iterator operator+(int d, iterator const& it) { return it + d; }
+
         diff_t operator-(iterator const& it) const { return diff(it); }
     };
 
