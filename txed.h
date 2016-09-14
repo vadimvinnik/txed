@@ -6,6 +6,7 @@
 */
 
 #include <string>
+#include <memory>
 
 class TextBase
 {
@@ -35,28 +36,33 @@ class TextBase
     virtual iterator_helper_base *end_helper() const = 0;
 
   public:
+    struct iterator_mismatch_exception {};
+    struct out_of_range_exception {};
+
     // Text object iterator is non-abstract class and does not need to be redefined
     // for particular text objects. It just delegates everything to a helper object
     // that is aware of the particular text object subclass.
     class iterator
     {
       private:
-        iterator_helper_base *m_helper; // todo: to auto_ptr or other smart ptr
+        std::unique_ptr<iterator_helper_base> m_helper;
         diff_t diff(iterator const& it) const { return m_helper->diff(it.m_helper); }
 
       public:
         // non-dereferenceable
         iterator():
-          m_helper(NULL)
+          m_helper(nullptr)
           {}
 
         iterator(iterator_helper_base *helper):
           m_helper(helper)
           {}
 
-        ~iterator() { delete m_helper; }
+        iterator(iterator const& it):
+          m_helper(it.helper->clone())
+          {}
 
-        // todo: copy constructor, assignment, return constructor, return assignment
+        iterator& operator=(iterator const& it) { m_helper.reset(it.m_helper->clone(); return *this; }
 
         char operator*() const { return m_helper->value(); }
         char operator[](int d) const { return *(*this + d); }
@@ -104,6 +110,32 @@ class TextConst : public TextBase
   private:
     std::string m_value;
 
+  protected:
+    class iterator_helper : public iterator_helper_base
+    {
+      private:
+        std::string::const_iterator m_current;
+
+      protected:
+        virtual diff_t diff_const(TextConst::iterator_helper const& it) const { return it.m_current - m_current; }
+        virtual diff_t diff_selection(TextSelection::iterator_helper const& it) const { throw iterator_mismatch_exception(); }
+        virtual diff_t diff_patch(TextPatch::iterator_helper const& it) const { throw iterator_mismatch_exception(); }
+
+      public:
+        iterator_helper(std::string::const_iterator current):
+          m_current(current)
+        {}
+
+        virtual iterator_helper_base *clone() const { return new iterator_helper(*this); }
+        virtual char value() const { return *m_current; }
+        virtual void move(int d) { m_current += d; }
+        virtual diff_t diff(iterator_helper_base const& it) { return it.diff_const(*this); }
+    };
+
+    virtual iterator_helper_base *begin_helper() const { return new iterator_helper(m_value.const_begin()); }
+    virtual iterator_helper_base *end_helper() const { return new iterator_helper(m_value.const_end()); }
+
+
   public:
     TextConst(std::string value): m_value(value) {}
 
@@ -129,6 +161,11 @@ class TextSegmentBase : public TextBase
 
 class TextSelection : public TextSegmentBase
 {
+  protected:
+    class iterator_helper : public iterator_helper_base
+    {
+    };
+
   public:
     TextSelection(TextBase const* base, int start, int length):
       TextSegmentBase(base, start, length)
@@ -142,6 +179,11 @@ class TextPatch : public TextSegmentBase
 {
   private:
     TextBase const* const m_patch;
+
+  protected:
+    class iterator_helper : public iterator_helper_base
+    {
+    };
 
   public:
     TextPatch(TextBase const* base, int start, int length, TextBase const* patch):
