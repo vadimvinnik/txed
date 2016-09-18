@@ -22,10 +22,11 @@ struct out_of_range_exception {};
 // Each concrete text object class must define its own implementation of this
 // base class.
 class text_iterator_helper_base {
-  protected:
+  private:
     int const m_end_index;
     int m_current_index;
 
+  protected:
     text_iterator_helper_base(int end_index, int current_index):
       m_end_index(end_index),
       m_current_index(current_index)
@@ -34,9 +35,12 @@ class text_iterator_helper_base {
     virtual void move_impl(int d) = 0;
 
   public:
-    ptrdiff_t diff(text_iterator_helper_base const& it) { return m_current_index - it.m_current_index; }
+    int end_index() const { return m_end_index; }
+    int current_index() const { return m_current_index; }
+    
+    ptrdiff_t diff(text_iterator_helper_base const& it) { return m_current_index - it.current_index(); }
 
-    virtual void move(int d) {
+    void move(int d) {
       move_impl(d);
       m_current_index += d;
     }
@@ -99,8 +103,7 @@ class text_iterator: public std::iterator<
 
 static text_iterator operator+(int d, text_iterator const& it) { return it + d; }
 
-class TextBase
-{
+class TextBase {
   protected:
     // Each concrete text object class must define its own pair of factory methods
     virtual text_iterator_helper_base *begin_helper() const = 0;
@@ -111,100 +114,93 @@ class TextBase
     text_iterator cend()   const { return text_iterator(end_helper()); }
 
     virtual int length() const = 0;
-    virtual char const& at(int i) const { return *(cbegin() + i); }
-    virtual std::string toString() const { return std::string(cbegin(), cend()); }
+    virtual char at(int i) const { return *(cbegin() + i); }
+    virtual std::string to_string() const { return std::string(cbegin(), cend()); }
 };
 
-class iterator_const_helper : public text_iterator_helper_base
-{
+class iterator_const_helper : public text_iterator_helper_base {
+  friend class TextConst;
+
   private:
     std::string::const_iterator m_current;
 
-  public:
-    iterator_const_helper(std::string::const_iterator current):
+    iterator_const_helper(int end_index, int current_index, std::string::const_iterator current):
+      text_iterator_helper_base(end_index, current_index),
       m_current(current)
     {}
 
+  protected:
+    virtual void move_impl(int d) { m_current += d; }
+
+  public:
     virtual text_iterator_helper_base *clone() const { return new iterator_const_helper(*this); }
     virtual char const& value() const { return *m_current; }
-    virtual void move(int d) { m_current += d; }
-    virtual ptrdiff_t diff(text_iterator_helper_base const& it) { return it.diff_const(*this); }
-
-    virtual ptrdiff_t diff_const(iterator_const_helper const& it) const { return it.m_current - m_current; }
-    virtual ptrdiff_t diff_selection(iterator_selection_helper const& it) const { throw iterator_mismatch_exception(); }
-    virtual ptrdiff_t diff_patch(iterator_patch_helper const& it) const { throw iterator_mismatch_exception(); }
 };
 
-class TextConst : public TextBase
-{
+class TextConst : public TextBase {
   private:
     std::string m_value;
 
   protected:
-    virtual text_iterator_helper_base *begin_helper() const { return new iterator_const_helper(m_value.cbegin()); }
-    virtual text_iterator_helper_base *end_helper() const { return new iterator_const_helper(m_value.cend()); }
+    virtual text_iterator_helper_base *begin_helper() const {
+      return new iterator_const_helper(
+          length(),
+          0,
+          m_value.cbegin());
+    }
+
+    virtual text_iterator_helper_base *end_helper() const {
+      return new iterator_const_helper(
+          length(),
+          length(),
+          m_value.cend());
+    }
 
   public:
     TextConst(std::string value): m_value(value) {}
 
     virtual int length() const { return m_value.length(); }
-    virtual char index(int i) const { return m_value[i]; }
-    virtual std::string toString() const { return m_value; }
+    virtual char at(int i) const { return m_value[i]; }
+    virtual std::string to_string() const { return m_value; }
 };
 
-class TextSegmentBase : public TextBase
-{
-  protected:
-    TextBase const* const m_base;
-    int const m_start;
-    int const m_length;
-
-  public:
-    TextSegmentBase(TextBase const* base, int start, int length):
-      m_base(base),
-      m_start(start),
-      m_length(length)
-    {}
-};
-
-class iterator_selection_helper : public text_iterator_helper_base
-{
-};
-
-class TextSelection : public TextSegmentBase
+class TextSelection : public TextBase
 {
   public:
-    TextSelection(TextBase const* base, int start, int length):
-      TextSegmentBase(base, start, length)
+    TextSelection(TextBase const* base, int start, int length)
       {}
-
-    virtual int length() const { return m_length; }
-    virtual char index(int i) const { return m_base->index(i + m_start); }
 };
 
 class iterator_patch_helper : public text_iterator_helper_base
 {
 };
 
-class TextPatch : public TextSegmentBase
+class TextPatch
 {
   private:
     TextBase const* const m_patch;
 
+  protected:
+    TextBase const* const m_base;
+    int const m_start;
+    int const m_length;
+
   public:
     TextPatch(TextBase const* base, int start, int length, TextBase const* patch):
-      TextSegmentBase(base, start, length),
+      m_base(base),
+      m_start(start),
+      m_length(length),
       m_patch(patch)
     {}
 
     virtual int length() const { return m_base->length() - m_length + m_patch->length(); }
 
-    virtual char index(int i) const {
+    virtual char at(int i) const {
       int i_in_patch = i - m_start;
 
       if (i_in_patch < 0)
       {
-        return m_base->index(i);
+        return m_base->at(i);
       }
       else
       {
@@ -212,11 +208,11 @@ class TextPatch : public TextSegmentBase
 
         if (i_in_postfix < 0)
         {
-          return m_patch->index(i_in_patch);
+          return m_patch->at(i_in_patch);
         }
         else
         {
-          return m_base->index(i_in_postfix + m_start + m_length);
+          return m_base->at(i_in_postfix + m_start + m_length);
         }
       }
     }
