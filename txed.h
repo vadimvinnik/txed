@@ -60,7 +60,7 @@ class text_iterator: public std::iterator<
   char const*,
   char const&
 > {
-  friend class TextBase;
+  friend class text_object;
 
   private:
     std::unique_ptr<text_iterator_helper_base> m_helper;
@@ -103,15 +103,19 @@ class text_iterator: public std::iterator<
 
 static text_iterator operator+(int d, text_iterator const& it) { return it + d; }
 
-class TextBase {
+class text_object {
+  private:
+    typedef text_iterator_helper_base helper;
   protected:
     // Each concrete text object class must define its own pair of factory methods
-    virtual text_iterator_helper_base *begin_helper() const = 0;
-    virtual text_iterator_helper_base *end_helper() const = 0;
+    virtual helper *begin_helper() const = 0;
+    virtual helper *end_helper() const = 0;
 
   public:
-    text_iterator cbegin() const { return text_iterator(begin_helper()); }
-    text_iterator cend()   const { return text_iterator(end_helper()); }
+    typedef text_iterator iterator;
+
+    iterator cbegin() const { return iterator(begin_helper()); }
+    iterator cend()   const { return iterator(end_helper()); }
 
     virtual int length() const = 0;
     virtual char at(int i) const { return *(cbegin() + i); }
@@ -119,7 +123,7 @@ class TextBase {
 };
 
 class iterator_const_helper : public text_iterator_helper_base {
-  friend class TextConst;
+  friend class text_string;
 
   private:
     std::string::const_iterator m_current;
@@ -137,7 +141,7 @@ class iterator_const_helper : public text_iterator_helper_base {
     virtual char const& value() const { return *m_current; }
 };
 
-class TextConst : public TextBase {
+class text_string : public text_object {
   private:
     std::string m_value;
 
@@ -157,18 +161,17 @@ class TextConst : public TextBase {
     }
 
   public:
-    TextConst(std::string value): m_value(value) {}
+    text_string(std::string value): m_value(value) {}
 
     virtual int length() const { return m_value.length(); }
     virtual char at(int i) const { return m_value[i]; }
     virtual std::string to_string() const { return m_value; }
 };
 
-class TextSelection : public TextBase
+class text_selection : public text_object
 {
   public:
-    TextSelection(TextBase const* base, int start, int length)
-      {}
+    text_selection(text_object const* base, int start, int length) {}
 };
 
 class iterator_patch_helper : public text_iterator_helper_base
@@ -178,15 +181,15 @@ class iterator_patch_helper : public text_iterator_helper_base
 class TextPatch
 {
   private:
-    TextBase const* const m_patch;
+    text_object const* const m_patch;
 
   protected:
-    TextBase const* const m_base;
+    text_object const* const m_base;
     int const m_start;
     int const m_length;
 
   public:
-    TextPatch(TextBase const* base, int start, int length, TextBase const* patch):
+    TextPatch(text_object const* base, int start, int length, text_object const* patch):
       m_base(base),
       m_start(start),
       m_length(length),
