@@ -21,24 +21,34 @@ struct out_of_range_exception {};
 // interface required by the Random access text_iterator notion defined in STL.
 // Each concrete text object class must define its own implementation of this
 // base class.
-class text_iterator_helper_base
-{
+class text_iterator_helper_base {
+  protected:
+    int const m_end_index;
+    int m_current_index;
+
+    text_iterator_helper_base(int end_index, int current_index):
+      m_end_index(end_index),
+      m_current_index(current_index)
+    {}
+
+    virtual void move_impl(int d) = 0;
+
   public:
+    ptrdiff_t diff(text_iterator_helper_base const& it) { return m_current_index - it.m_current_index; }
+
+    virtual void move(int d) {
+      move_impl(d);
+      m_current_index += d;
+    }
+
     virtual text_iterator_helper_base *clone() const = 0;
     virtual char const& value() const = 0;
-    virtual void move(int d) = 0;
-    virtual ptrdiff_t diff(text_iterator_helper_base const& it) = 0;
-
-    // To resolve the actual subtype of the 2nd argument in diff()
-    virtual ptrdiff_t diff_const(iterator_const_helper const& it) const = 0;
-    virtual ptrdiff_t diff_selection(iterator_selection_helper const& it) const = 0;
-    virtual ptrdiff_t diff_patch(iterator_patch_helper const& it) const = 0;
 };
 
-// Text object text_iterator is non-abstract class and does not need to be redefined
-// for particular text objects. It just delegates everything to a helper object
-// that is aware of the particular text object subclass. This is a normal STL
-// text_iterator -- in oarticular, it can be passed by value.
+// This is a non-abstract class that does not need to be ovverrided for
+// particular text objects. It just delegates everything to a helper object that
+// is aware of the particular text object subclass. This is a normal STL
+// iterator -- in particular, it can be passed by value.
 class text_iterator: public std::iterator<
     std::random_access_iterator_tag,
     char,
