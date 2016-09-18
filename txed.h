@@ -6,10 +6,12 @@
 
 #include <cassert>
 #include <cstddef>
+#include <list>
 #include <memory>
+#include <numeric>
 #include <string>
 
-class iterator_const_helper;
+class string_iterator_helper;
 class iterator_selection_helper;
 class iterator_patch_helper;
 
@@ -76,8 +78,8 @@ class text_iterator: public std::iterator<
 
     text_iterator& operator=(text_iterator const& it) { m_helper.reset(it.m_helper->clone()); return *this; }
 
-    char operator*() const { return m_helper->value(); }
-    char operator[](int d) const { return *(*this + d); }
+    char const& operator*() const { return m_helper->value(); }
+    char const& operator[](int d) const { return *(*this + d); }
 
     bool operator==(text_iterator const& it) const { return diff(it) == 0; }
     bool operator!=(text_iterator const& it) const { return diff(it) != 0; }
@@ -104,9 +106,9 @@ class text_iterator: public std::iterator<
 static text_iterator operator+(int d, text_iterator const& it) { return it + d; }
 
 class text_object {
-  private:
-    typedef text_iterator_helper_base helper;
   protected:
+    typedef text_iterator_helper_base helper;
+
     // Each concrete text object class must define its own pair of factory methods
     virtual helper *begin_helper() const = 0;
     virtual helper *end_helper() const = 0;
@@ -118,17 +120,17 @@ class text_object {
     iterator cend()   const { return iterator(end_helper()); }
 
     virtual int length() const = 0;
-    virtual char at(int i) const { return *(cbegin() + i); }
+    virtual char const& at(int i) const { return *(cbegin() + i); }
     virtual std::string to_string() const { return std::string(cbegin(), cend()); }
 };
 
-class iterator_const_helper : public text_iterator_helper_base {
+class string_iterator_helper : public text_iterator_helper_base {
   friend class text_string;
 
   private:
     std::string::const_iterator m_current;
 
-    iterator_const_helper(int end_index, int current_index, std::string::const_iterator current):
+    string_iterator_helper(int end_index, int current_index, std::string::const_iterator current):
       text_iterator_helper_base(end_index, current_index),
       m_current(current)
     {}
@@ -137,7 +139,7 @@ class iterator_const_helper : public text_iterator_helper_base {
     virtual void move_impl(int d) { m_current += d; }
 
   public:
-    virtual text_iterator_helper_base *clone() const { return new iterator_const_helper(*this); }
+    virtual text_iterator_helper_base *clone() const { return new string_iterator_helper(*this); }
     virtual char const& value() const { return *m_current; }
 };
 
@@ -147,14 +149,14 @@ class text_string : public text_object {
 
   protected:
     virtual text_iterator_helper_base *begin_helper() const {
-      return new iterator_const_helper(
+      return new string_iterator_helper(
           length(),
           0,
           m_value.cbegin());
     }
 
     virtual text_iterator_helper_base *end_helper() const {
-      return new iterator_const_helper(
+      return new string_iterator_helper(
           length(),
           length(),
           m_value.cend());
@@ -164,59 +166,100 @@ class text_string : public text_object {
     text_string(std::string value): m_value(value) {}
 
     virtual int length() const { return m_value.length(); }
-    virtual char at(int i) const { return m_value[i]; }
+    virtual char const& at(int i) const { return m_value[i]; }
     virtual std::string to_string() const { return m_value; }
 };
 
-class text_selection : public text_object
-{
-  public:
-    text_selection(text_object const* base, int start, int length) {}
-};
+class selection_iterator_helper: public text_iterator_helper_base {
+  friend class text_selection;
 
-class iterator_patch_helper : public text_iterator_helper_base
-{
-};
-
-class TextPatch
-{
   private:
-    text_object const* const m_patch;
+    text_object::iterator m_current;
+    int m_current_index;
 
-  protected:
-    text_object const* const m_base;
-    int const m_start;
-    int const m_length;
-
-  public:
-    TextPatch(text_object const* base, int start, int length, text_object const* patch):
-      m_base(base),
-      m_start(start),
-      m_length(length),
-      m_patch(patch)
+    selection_iterator_helper(
+      text_object::iterator current,
+      int current_index,
+      int length
+    ):
+      text_iterator_helper_base(length, current_index),
+      m_current(current),
+      m_current_index(current_index)
     {}
 
-    virtual int length() const { return m_base->length() - m_length + m_patch->length(); }
+  protected:
+    virtual void move_impl(int d) { m_current += d; }
 
-    virtual char at(int i) const {
-      int i_in_patch = i - m_start;
-
-      if (i_in_patch < 0)
-      {
-        return m_base->at(i);
-      }
-      else
-      {
-        int i_in_postfix = i_in_patch - m_patch->length();
-
-        if (i_in_postfix < 0)
-        {
-          return m_patch->at(i_in_patch);
-        }
-        else
-        {
-          return m_base->at(i_in_postfix + m_start + m_length);
-        }
-      }
+  public:
+    virtual text_iterator_helper_base *clone() const {
+      return new selection_iterator_helper(
+          m_current,
+          m_current_index,
+          end_index());
     }
+
+    virtual char const& value() const { return *m_current; }
+};
+                                
+class text_selection : public text_object
+{
+  private:
+    text_object const* m_base;
+    text_object::iterator m_start;
+    text_object::iterator m_end;
+    int m_length;
+
+  protected:
+    virtual helper *begin_helper() const {
+      return new selection_iterator_helper(m_start, 0, m_length);
+    }
+
+    virtual helper *end_helper() const {
+      return new selection_iterator_helper(m_end, m_length, m_length);
+    }
+
+  public:
+    text_selection(text_object const* base, int start, int end):
+      m_base(base),
+      m_start(base->cbegin() + start),
+      m_end(base->cbegin() + end),
+      m_length(end - start)
+    {}
+
+    text_selection(text_object const* base, text_object::iterator start, int length):
+      m_base(base),
+      m_start(start),
+      m_end(start + length),
+      m_length(length)
+    {}
+
+    text_selection(text_object const* base, text_object::iterator start, text_object::iterator end):
+      m_base(base),
+      m_start(start),
+      m_end(end),
+      m_length(end - start)
+    {}
+
+    virtual int length() const { return m_length; }
+    virtual char const& at(int i) const { return *(m_start + i); }
+};
+
+class composition_iterator_helper : public text_iterator_helper_base
+{
+};
+
+class text_composition
+{
+  private:
+    std::list<text_selection const*> m_components;
+    int m_length;
+
+  public:
+    template<typename It>
+    text_composition(It begin, It end):
+      m_components(begin, end),
+      m_length(std::accumulate(begin, end, 0, [](int s, It i) -> int { return s + i->length(); }))
+    {}
+
+    virtual int length() const { return m_length; }
 };
