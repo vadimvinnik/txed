@@ -50,21 +50,24 @@ class text_iterator_helper_base {
 // is aware of the particular text object subclass. This is a normal STL
 // iterator -- in particular, it can be passed by value.
 class text_iterator: public std::iterator<
-    std::random_access_iterator_tag,
-    char,
-    ptrdiff_t,
-    char const*,
-    char const&>
-{
+  std::random_access_iterator_tag,
+  char,
+  ptrdiff_t,
+  char const*,
+  char const&
+> {
+  friend class TextBase;
+
   private:
     std::unique_ptr<text_iterator_helper_base> m_helper;
+
+    text_iterator(text_iterator_helper_base *helper): m_helper(helper) {}
 
     ptrdiff_t diff(text_iterator const& it) const { return m_helper->diff(*it.m_helper); }
     void move(int d) { m_helper->move(d); }
 
   public:
     text_iterator(): m_helper(nullptr) {}
-    text_iterator(text_iterator_helper_base *helper): m_helper(helper) {}
     text_iterator(text_iterator const& it): m_helper(it.m_helper->clone()) {}
 
     text_iterator& operator=(text_iterator const& it) { m_helper.reset(it.m_helper->clone()); return *this; }
@@ -104,18 +107,12 @@ class TextBase
     virtual text_iterator_helper_base *end_helper() const = 0;
 
   public:
-    text_iterator const_begin() const { return text_iterator(begin_helper()); }
-    text_iterator const_end() const { return text_iterator(end_helper()); }
+    text_iterator cbegin() const { return text_iterator(begin_helper()); }
+    text_iterator cend()   const { return text_iterator(end_helper()); }
 
     virtual int length() const = 0;
-    virtual char index(int i) const = 0;
-
-    virtual std::string toString() const
-    {
-      return std::string(const_begin(), const_end());
-    }
-
-    // todo: convert index() to a non-virtual method with assertion delegating to a protected helper
+    virtual char const& at(int i) const { return *(cbegin() + i); }
+    virtual std::string toString() const { return std::string(cbegin(), cend()); }
 };
 
 class iterator_const_helper : public text_iterator_helper_base
