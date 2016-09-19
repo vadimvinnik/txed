@@ -174,17 +174,33 @@ class text_string : public text_object {
 
 class replacement_iterator_helper: public text_iterator_helper_base {
   private:
-    text_object::iterator const m_base_from;
-    text_object::iterator const m_cut_from;
-    text_object::iterator const m_cut_to;
-    text_object::iterator const m_base_to;
-    text_object::iterator const m_patch_from;
-    text_object::iterator const m_patch_to;
+    text_object::iterator const m_prefix_begin;
+    text_object::iterator const m_patch_begin;
+    text_object::iterator const m_postfix_begin;
+    int const m_prefix_end_index;
+    int const m_patch_end_index;
 
   protected:
-    virtual void move_impl(int d) {} // do nothing -- 
+    virtual void move_impl(int d) {} // current index from the base class is enough
 
   public:
+    virtual text_iterator_helper_base *clone() const {
+      return new replacement_iterator_helper(*this);
+    }
+
+    virtual char const& value() const {
+      auto const i_in_prefix = current_index();
+      auto const i_in_patch = i_in_prefix - m_prefix_end_index;
+      auto const i_in_postfix = i_in_prefix - m_patch_end_index;
+
+      auto const current = i_in_postfix >= 0
+        ? m_postfix_begin + i_in_postfix
+        : i_in_patch >= 0
+          ? m_patch_begin + i_in_patch
+          : m_prefix_begin + i_in_prefix;
+
+      return *current;
+    }
 };
 
 class text_replacement : public text_object
