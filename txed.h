@@ -65,7 +65,7 @@ class text_iterator: public std::iterator<
   friend class text_object;
 
   private:
-    std::unique_ptr<text_iterator_helper_base> m_helper;
+    std::unique_ptr<text_iterator_helper_base> const m_helper;
 
     text_iterator(text_iterator_helper_base *helper): m_helper(helper) {}
 
@@ -116,6 +116,8 @@ class text_object {
   public:
     typedef text_iterator iterator;
 
+    iterator begin()  const { return iterator(begin_helper()); }
+    iterator end()    const { return iterator(end_helper()); }
     iterator cbegin() const { return iterator(begin_helper()); }
     iterator cend()   const { return iterator(end_helper()); }
 
@@ -145,7 +147,7 @@ class string_iterator_helper : public text_iterator_helper_base {
 
 class text_string : public text_object {
   private:
-    std::string m_value;
+    std::string const m_value;
 
   protected:
     virtual text_iterator_helper_base *begin_helper() const {
@@ -163,11 +165,64 @@ class text_string : public text_object {
     }
 
   public:
-    text_string(std::string value): m_value(value) {}
+    text_string(std::string const& value): m_value(value) {}
 
     virtual int length() const { return m_value.length(); }
     virtual char const& at(int i) const { return m_value[i]; }
     virtual std::string to_string() const { return m_value; }
+};
+
+class replacement_iterator_helper: public text_iterator_helper_base {
+  private:
+    text_object::iterator const m_base_from;
+    text_object::iterator const m_cut_from;
+    text_object::iterator const m_cut_to;
+    text_object::iterator const m_base_to;
+    text_object::iterator const m_patch_from;
+    text_object::iterator const m_patch_to;
+
+  protected:
+    virtual void move_impl(int d) {} // do nothing -- 
+
+  public:
+};
+
+class text_replacement : public text_object
+{
+  private:
+    text_object const* const m_base;
+    text_object::iterator const m_cut_from;
+    text_object::iterator const m_cut_to;
+    text_object::iterator const m_patch_from;
+    text_object::iterator const m_patch_to;
+    int m_length;
+
+  protected:
+    virtual helper *begin_helper() const {
+      return new replacement_iterator_helper(m_start, 0, m_length);
+    }
+
+    virtual helper *end_helper() const {
+      return new replacement_iterator_helper(m_end, m_length, m_length);
+    }
+
+  public:
+    text_replacement(
+      text_object const* base,
+      text_object::iterator cut_from,
+      text_object::iterator cut_to,
+      text_object::iterator patch_from,
+      text_object::iterator patch_to
+    ):
+      m_base(base),
+      m_cut_from(cut_from),
+      m_cut_to(cut_to),
+      m_patch_from(patch_from),
+      m_patch_to(patch_to),
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+    {}
+
+    virtual int length() const { return m_length; }
 };
 
 class selection_iterator_helper: public text_iterator_helper_base {
