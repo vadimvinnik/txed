@@ -1,4 +1,12 @@
-//  Object model for a text editor with easy undo/redo
+//  Object model for a text editor with fast insert/delete/replace
+//  and easy undo/redo.
+//
+//  Text objects are immutable. Instead of changing a string, every edit
+//  operation applies a decorator. Hence, the current state of the text
+//  is a stack of decorators that gives the edit history.
+//
+//  Text object supports access through STL-style iterators and therefore
+//  can be used in any algorithm where a string range is expected.
 //
 //  Vadim Vinnik
 //  vadim.vinnik@gmail.com
@@ -6,14 +14,8 @@
 
 #include <cassert>
 #include <cstddef>
-#include <list>
 #include <memory>
-#include <numeric>
 #include <string>
-
-class string_iterator_helper;
-class iterator_selection_helper;
-class iterator_patch_helper;
 
 struct iterator_mismatch_exception {};
 struct out_of_range_exception {};
@@ -315,22 +317,3 @@ class text_selection : public text_object
     virtual char const& at(int i) const { return *(m_start + i); }
 };
 
-class composition_iterator_helper : public text_iterator_helper_base
-{
-};
-
-class text_composition
-{
-  private:
-    std::list<text_selection const*> m_components;
-    int m_length;
-
-  public:
-    template<typename It>
-    text_composition(It begin, It end):
-      m_components(begin, end),
-      m_length(std::accumulate(begin, end, 0, [](int s, It i) -> int { return s + i->length(); }))
-    {}
-
-    virtual int length() const { return m_length; }
-};
