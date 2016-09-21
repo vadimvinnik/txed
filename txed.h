@@ -27,33 +27,31 @@ struct out_of_range_exception {};
 // base class.
 class text_iterator_helper_base {
   private:
-    int const m_end_index;
     int m_current_index;
 
   protected:
-    text_iterator_helper_base(int end_index, int current_index):
-      m_end_index(end_index),
+    text_iterator_helper_base(int current_index):
       m_current_index(current_index)
     {}
 
     virtual void move_impl(int d) = 0;
 
   public:
-    int end_index() const { return m_end_index; }
     int current_index() const { return m_current_index; }
     
     ptrdiff_t diff(text_iterator_helper_base const& it) { return m_current_index - it.current_index(); }
 
     void move(int d) {
+      auto new_index = m_current_index + d;
       move_impl(d);
-      m_current_index += d;
+      m_current_index = new_index;
     }
 
     virtual text_iterator_helper_base *clone() const = 0;
     virtual char const& value() const = 0;
 };
 
-// This is a non-abstract class that does not need to be ovverrided for
+// This is a non-abstract class that does not need to be overrided for
 // particular text objects. It just delegates everything to a helper object that
 // is aware of the particular text object subclass. This is a normal STL
 // iterator -- in particular, it can be passed by value.
@@ -62,8 +60,8 @@ class text_iterator: public std::iterator<
   char,
   ptrdiff_t,
   char const*,
-  char const&
-> {
+  char const&>
+{
   friend class text_object;
 
   private:
@@ -134,8 +132,8 @@ class string_iterator_helper : public text_iterator_helper_base {
   private:
     std::string::const_iterator m_current;
 
-    string_iterator_helper(int end_index, int current_index, std::string::const_iterator current):
-      text_iterator_helper_base(end_index, current_index),
+    string_iterator_helper(int current_index, std::string::const_iterator current):
+      text_iterator_helper_base(current_index),
       m_current(current)
     {}
 
@@ -152,18 +150,12 @@ class text_string : public text_object {
     std::string const m_value;
 
   protected:
-    virtual text_iterator_helper_base *begin_helper() const {
-      return new string_iterator_helper(
-          length(),
-          0,
-          m_value.cbegin());
+    virtual helper *begin_helper() const {
+      return new string_iterator_helper(0, m_value.cbegin());
     }
 
-    virtual text_iterator_helper_base *end_helper() const {
-      return new string_iterator_helper(
-          length(),
-          length(),
-          m_value.cend());
+    virtual helper *end_helper() const {
+      return new string_iterator_helper(length(), m_value.cend());
     }
 
   public:
@@ -175,12 +167,30 @@ class text_string : public text_object {
 };
 
 class replacement_iterator_helper: public text_iterator_helper_base {
+  friend class text_replacement;
+
   private:
     text_object::iterator const m_prefix_begin;
     text_object::iterator const m_patch_begin;
     text_object::iterator const m_postfix_begin;
-    int const m_prefix_end_index;
-    int const m_patch_end_index;
+    int const m_prefix_length;
+    int const m_patch_length;
+
+    replacement_iterator_helper(
+      int current_index,
+      text_object::iterator const prefix_begin,
+      text_object::iterator const prefix_end,
+      text_object::iterator const patch_begin,
+      text_object::iterator const patch_end,
+      text_object::iterator const postfix_begin
+    ):
+      text_iterator_helper_base(current_index),
+      m_prefix_begin(prefix_begin),
+      m_patch_begin(patch_begin),
+      m_postfix_begin(postfix_begin),
+      m_prefix_end_index(prefix_end - prefix_begin),
+      m_patch_end_index(patch_end - patch_begin)
+    {}
 
   protected:
     virtual void move_impl(int d) {} // current index from the base class is enough
@@ -192,8 +202,8 @@ class replacement_iterator_helper: public text_iterator_helper_base {
 
     virtual char const& value() const {
       auto const i_in_prefix = current_index();
-      auto const i_in_patch = i_in_prefix - m_prefix_end_index;
-      auto const i_in_postfix = i_in_prefix - m_patch_end_index;
+      auto const i_in_patch = i_in_prefix - m_prefix_length;
+      auto const i_in_postfix = i_in_patch - m_patch_length;
 
       auto const current = i_in_postfix >= 0
         ? m_postfix_begin + i_in_postfix
@@ -215,14 +225,19 @@ class text_replacement : public text_object
     text_object::iterator const m_patch_to;
     int m_length;
 
-  protected:
-    virtual helper *begin_helper() const {
-      return new replacement_iterator_helper(m_start, 0, m_length);
+    helper *create_helper(int index) const {
+      return new replacement_iterator_helper(
+          index,
+          m_base->cbegin(),
+          m_cut_from,
+          m_patch_from,
+          m_patch_to,
+          m_cut_to);
     }
 
-    virtual helper *end_helper() const {
-      return new replacement_iterator_helper(m_end, m_length, m_length);
-    }
+  protected:
+    virtual helper *begin_helper() const { return create_helper(0); }
+    virtual helper *end_helper() const { return create_helper(m_length); }
 
   public:
     text_replacement(
@@ -242,78 +257,3 @@ class text_replacement : public text_object
 
     virtual int length() const { return m_length; }
 };
-
-class selection_iterator_helper: public text_iterator_helper_base {
-  friend class text_selection;
-
-  private:
-    text_object::iterator m_current;
-    int m_current_index;
-
-    selection_iterator_helper(
-      text_object::iterator current,
-      int current_index,
-      int length
-    ):
-      text_iterator_helper_base(length, current_index),
-      m_current(current),
-      m_current_index(current_index)
-    {}
-
-  protected:
-    virtual void move_impl(int d) { m_current += d; }
-
-  public:
-    virtual text_iterator_helper_base *clone() const {
-      return new selection_iterator_helper(
-          m_current,
-          m_current_index,
-          end_index());
-    }
-
-    virtual char const& value() const { return *m_current; }
-};
-                                
-class text_selection : public text_object
-{
-  private:
-    text_object const* m_base;
-    text_object::iterator m_start;
-    text_object::iterator m_end;
-    int m_length;
-
-  protected:
-    virtual helper *begin_helper() const {
-      return new selection_iterator_helper(m_start, 0, m_length);
-    }
-
-    virtual helper *end_helper() const {
-      return new selection_iterator_helper(m_end, m_length, m_length);
-    }
-
-  public:
-    text_selection(text_object const* base, int start, int end):
-      m_base(base),
-      m_start(base->cbegin() + start),
-      m_end(base->cbegin() + end),
-      m_length(end - start)
-    {}
-
-    text_selection(text_object const* base, text_object::iterator start, int length):
-      m_base(base),
-      m_start(start),
-      m_end(start + length),
-      m_length(length)
-    {}
-
-    text_selection(text_object const* base, text_object::iterator start, text_object::iterator end):
-      m_base(base),
-      m_start(start),
-      m_end(end),
-      m_length(end - start)
-    {}
-
-    virtual int length() const { return m_length; }
-    virtual char const& at(int i) const { return *(m_start + i); }
-};
-
