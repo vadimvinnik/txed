@@ -65,7 +65,7 @@ class text_iterator: public std::iterator<
   friend class text_object;
 
   private:
-    std::unique_ptr<text_iterator_helper_base> const m_helper;
+    std::unique_ptr<text_iterator_helper_base> m_helper;
 
     text_iterator(text_iterator_helper_base *helper): m_helper(helper) {}
 
@@ -188,8 +188,8 @@ class replacement_iterator_helper: public text_iterator_helper_base {
       m_prefix_begin(prefix_begin),
       m_patch_begin(patch_begin),
       m_postfix_begin(postfix_begin),
-      m_prefix_end_index(prefix_end - prefix_begin),
-      m_patch_end_index(patch_end - patch_begin)
+      m_prefix_length(prefix_end - prefix_begin),
+      m_patch_length(patch_end - patch_begin)
     {}
 
   protected:
@@ -252,6 +252,22 @@ class text_replacement : public text_object
       m_cut_to(cut_to),
       m_patch_from(patch_from),
       m_patch_to(patch_to),
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+    {}
+
+    text_replacement(
+      text_object const* base,
+      int cut_from,
+      int cut_to,
+      text_object const* patch,
+      int patch_from,
+      int patch_to
+    ):
+      m_base(base),
+      m_cut_from(base->cbegin() + cut_from),
+      m_cut_to(base->cbegin() + cut_to),
+      m_patch_from(patch->cbegin() + patch_from),
+      m_patch_to(patch->cbegin() + patch_to),
       m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
     {}
 
