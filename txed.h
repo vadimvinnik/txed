@@ -17,8 +17,26 @@
 #include <memory>
 #include <string>
 
-struct iterator_mismatch_exception {};
-struct out_of_range_exception {};
+class iterator_mismatch: public std::domain_error {
+  public:
+    iterator_mismatch(): std::domain_error("Cannot compare iterators pointing to different containers") {}
+};
+
+class text_out_of_range: public std::out_of_range {
+  private:
+    int const m_index;
+    int const m_length;
+
+  public:
+    text_out_of_range(int index, int length):
+      std::out_of_range("Cannot dereference an iterator pointing outside the container"),
+      m_index(index),
+      m_length(length)
+    {}
+
+    int index() const { return m_index; }
+    int length() const { return m_length; }
+};
 
 // Performs all the hard work implementing the actual text_iterator behaviour.
 // Then the text_iterator class itself just wraps this worker object into a rich
@@ -27,10 +45,11 @@ struct out_of_range_exception {};
 // base class.
 class text_iterator_helper_base {
   private:
+    void const* m_target;
     int m_current_index;
 
   protected:
-    text_iterator_helper_base(int current_index):
+    text_iterator_helper_base(void const* target, int current_index):
       m_current_index(current_index)
     {}
 
@@ -39,7 +58,14 @@ class text_iterator_helper_base {
   public:
     int current_index() const { return m_current_index; }
     
-    ptrdiff_t diff(text_iterator_helper_base const& it) { return m_current_index - it.current_index(); }
+    ptrdiff_t diff(text_iterator_helper_base const& it) {
+      if (m_target != it.m_target)
+      {
+        throw iterator_mismatch();
+      }
+
+      return m_current_index - it.current_index();
+    }
 
     void move(int d) {
       auto new_index = m_current_index + d;
@@ -132,8 +158,8 @@ class string_iterator_helper : public text_iterator_helper_base {
   private:
     std::string::const_iterator m_current;
 
-    string_iterator_helper(int current_index, std::string::const_iterator current):
-      text_iterator_helper_base(current_index),
+    string_iterator_helper(void const* target, int current_index, std::string::const_iterator current):
+      text_iterator_helper_base(target, current_index),
       m_current(current)
     {}
 
@@ -151,18 +177,18 @@ class text_string : public text_object {
 
   protected:
     virtual helper *begin_helper() const {
-      return new string_iterator_helper(0, m_value.cbegin());
+      return new string_iterator_helper(this, 0, m_value.cbegin());
     }
 
     virtual helper *end_helper() const {
-      return new string_iterator_helper(length(), m_value.cend());
+      return new string_iterator_helper(this, length(), m_value.cend());
     }
 
   public:
     text_string(std::string const& value): m_value(value) {}
 
     virtual int length() const { return m_value.length(); }
-    virtual char const& at(int i) const { return m_value[i]; }
+    virtual char const& at(int i) const { return m_value.at(i); }
     virtual std::string to_string() const { return m_value; }
 };
 
@@ -177,6 +203,7 @@ class replacement_iterator_helper: public text_iterator_helper_base {
     int const m_patch_length;
 
     replacement_iterator_helper(
+      void const* target,
       int current_index,
       text_object::iterator const prefix_begin,
       text_object::iterator const prefix_end,
@@ -184,7 +211,7 @@ class replacement_iterator_helper: public text_iterator_helper_base {
       text_object::iterator const patch_end,
       text_object::iterator const postfix_begin
     ):
-      text_iterator_helper_base(current_index),
+      text_iterator_helper_base(target, current_index),
       m_prefix_begin(prefix_begin),
       m_patch_begin(patch_begin),
       m_postfix_begin(postfix_begin),
@@ -227,6 +254,7 @@ class text_replacement : public text_object
 
     helper *create_helper(int index) const {
       return new replacement_iterator_helper(
+          this,
           index,
           m_base->cbegin(),
           m_cut_from,
