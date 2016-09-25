@@ -12,7 +12,6 @@
 //  vadim.vinnik@gmail.com
 //  2016
 
-#include <cassert>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -143,8 +142,8 @@ class text_object {
     typedef text_iterator iterator;
 
     iterator begin()  const { return iterator(begin_helper()); }
-    iterator end()    const { return iterator(end_helper()); }
     iterator cbegin() const { return iterator(begin_helper()); }
+    iterator end()    const { return iterator(end_helper()); }
     iterator cend()   const { return iterator(end_helper()); }
 
     virtual int length() const = 0;
