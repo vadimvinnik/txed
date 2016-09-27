@@ -12,7 +12,9 @@
 //  vadim.vinnik@gmail.com
 //  2016
 
+#include <cassert>
 #include <cstddef>
+#include <map>
 #include <stdexcept>
 #include <string>
 
@@ -64,9 +66,10 @@ class text_iterator: public std::iterator<
       return m_current_index - it.m_current_index;
     }
 
-    void move(int d) { m_current_index += d; }
-
     bool is_at(int k) const { return m_current_index == k; }
+
+    void move(int d) { m_current_index += d; }
+    void move_to(int k) { m_current_index = k; }
 
   public:
     text_iterator(): m_target(nullptr) {}
@@ -75,6 +78,8 @@ class text_iterator: public std::iterator<
 
     bool is_begin() const;
     bool is_end() const;
+    void move_to_begin();
+    void move_to_end();
 
     text_iterator& operator=(text_iterator const& it) = default;
 
@@ -113,6 +118,10 @@ class text_iterator: public std::iterator<
 
 static text_iterator operator+(int d, text_iterator const& it) { return it + d; }
 
+typedef std::pair<std::string::const_iterator, std::string::const_iterator> string_segment;
+
+typedef std::map<int, string_segment> segment_map;
+
 class text_object {
   private:
     text_iterator create_iterator(int i) const;
@@ -128,6 +137,8 @@ class text_object {
     virtual int length() const = 0;
     virtual char const& at(int i) const = 0;
     virtual std::string to_string() const { return std::string(cbegin(), cend()); }
+
+    virtual segment_map segments() const = 0;
 };
 
 text_iterator text_object::create_iterator(int i) const {
@@ -144,6 +155,18 @@ class text_string : public text_object {
     virtual int length() const { return m_value.length(); }
     virtual char const& at(int i) const { return m_value.at(i); }
     virtual std::string to_string() const { return m_value; }
+
+    virtual segment_map segments() const {
+      return segment_map {
+        std::make_pair(
+          m_value.length(),
+          string_segment(
+            m_value.cbegin(),
+            m_value.cend()
+          )
+        )
+      };
+    }
 };
 
 class text_replacement : public text_object
@@ -155,6 +178,62 @@ class text_replacement : public text_object
     int const m_prefix_length;
     int const m_patch_length;
     int const m_length;
+
+    static segment_map make_segment_map(
+      text_object const* base,
+      int cut_from,
+      int cut_to,
+      text_object const* patch,
+      int patch_from,
+      int patch_to
+    ) {
+      auto const base_map = base->segments();
+      auto const patch_map = patch->segments();
+
+      auto const last_prefix_segment_it = base_map.lower_bound(cut_from);
+
+      auto const first_patch_segment_it = patch_map.lower_bound(patch_from);
+      auto const last_patch_segment_it = patch_map.lower_bound(patch_to);
+
+      auto const first_postfix_segment_it = base_map.lower_bound(cut_to);
+
+      segment_map result(base_map.begin(), last_prefix_segment_it);
+      // add segments of the prefix
+      
+      if (last_prefix_segment_it != base_map.end())
+      {
+        // fix the end of the last segment of the prefix
+        auto last_prefix_segment_end_shift = cut_from - last_prefix_segment_it->first;
+
+        auto last_prefix_segment_end = last_prefix_segment_it->second.second + last_prefix_segment_end_shift;
+
+        assert(last_prefix_segment_end <= last_prefix_segment_it->second.second);
+
+        result[cut_from] = string_segment(last_prefix_segment_it->second.first, last_prefix_segment_end);
+      }
+      else
+      {
+        assert(base->length() == 0);
+        assert(cut_from == 0);
+        assert(cut_to == 0);
+      }
+
+      auto current_position = cut_from;
+      if (first_patch_segment_it != last_patch_segment_it)
+      {
+        // fix the begin of the last segment of the patch
+
+        // add segments of the patch
+
+        // fix the end of the last segment of the patch
+      }
+
+      // fix the begin of the first segment of the postfix
+
+      // add segments of the postfix
+
+      return result;
+    }
 
   public:
     text_replacement(
@@ -203,10 +282,14 @@ class text_replacement : public text_object
 
       return *current;
     }
+
+    virtual segment_map segments() const { return segment_map(); }
 };
 
 bool text_iterator::is_begin() const { return is_at(0); }
 bool text_iterator::is_end() const { return is_at(m_target->length()); }
+void text_iterator::move_to_begin() { move_to(0); }
+void text_iterator::move_to_end() { move_to(m_target->length()); }
 
 char const& text_iterator::operator*() const { return m_target->at(m_current_index); }
 
