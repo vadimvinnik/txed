@@ -13,7 +13,7 @@
 //  2016
 
 #include <cstddef>
-#include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace text_edit {
@@ -75,8 +75,6 @@ class text_iterator: public std::iterator<
 
     bool is_begin() const;
     bool is_end() const;
-    bool is_rbegin() const;
-    bool is_rend() const;
 
     text_iterator& operator=(text_iterator const& it) = default;
 
@@ -126,10 +124,6 @@ class text_object {
     iterator cbegin()  const { return create_iterator(           0); }
     iterator end()     const { return create_iterator(    length()); }
     iterator cend()    const { return create_iterator(    length()); }
-    iterator rbegin()  const { return create_iterator(length() - 1); }
-    iterator crbegin() const { return create_iterator(length() - 1); }
-    iterator rend()    const { return create_iterator(          -1); }
-    iterator rcend()   const { return create_iterator(          -1); }
 
     virtual int length() const = 0;
     virtual char const& at(int i) const = 0;
@@ -213,8 +207,6 @@ class text_replacement : public text_object
 
 bool text_iterator::is_begin() const { return is_at(0); }
 bool text_iterator::is_end() const { return is_at(m_target->length()); }
-bool text_iterator::is_rbegin() const { return is_at(m_target->length() - 1); }
-bool text_iterator::is_rend() const { return is_at(-1); }
 
 char const& text_iterator::operator*() const { return m_target->at(m_current_index); }
 
