@@ -308,7 +308,7 @@ class text_replacement : public text_object
           result[current_position] = adjusted_first_posftix_segment;
         }
 
-        auto current_postfix_segment_it = first_patch_segment_it;
+        auto current_postfix_segment_it = first_postfix_segment_it;
         ++current_postfix_segment_it;
 
         while (current_postfix_segment_it != base_map.end()) {
