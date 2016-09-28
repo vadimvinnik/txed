@@ -240,7 +240,7 @@ class text_replacement : public text_object
       {
         auto adjusted_last_prefix_segment = adjust_end(*last_prefix_segment_it, cut_from);
 
-        assert(adjusted_last_prefix_segment.first != adjusted_last_prefix_segment.last);
+        assert(adjusted_last_prefix_segment.first != adjusted_last_prefix_segment.second);
 
         result[cut_from] = adjusted_last_prefix_segment;
       }
@@ -271,10 +271,12 @@ class text_replacement : public text_object
           result[current_position] = adjusted_first_patch_segment;
         }
 
-        auto current_patch_segment_it = first_patch_segment_it + 1;
+        auto current_patch_segment_it = first_patch_segment_it;
+        ++current_patch_segment_it;
  
         while (current_patch_segment_it != last_patch_segment_it) {
-          current_position += current_patch_segment_it->first;
+          current_position +=
+            current_patch_segment_it->second.second - current_patch_segment_it->second.first;
           result[current_position] = current_patch_segment_it->second;
           ++current_patch_segment_it;
         }
@@ -305,10 +307,12 @@ class text_replacement : public text_object
           result[current_position] = adjusted_first_posftix_segment;
         }
 
-        auto current_postfix_segment_it = first_patch_segment_it + 1;
+        auto current_postfix_segment_it = first_patch_segment_it;
+        ++current_postfix_segment_it;
 
         while (current_postfix_segment_it != base_map.end()) {
-          current_position += current_postfix_segment_it->second - current_postfix_segment_it->first;
+          current_position +=
+            current_postfix_segment_it->second.second - current_postfix_segment_it->second.first;
           result[current_position] = current_postfix_segment_it->second;
           ++current_postfix_segment_it;
         }
@@ -322,6 +326,7 @@ class text_replacement : public text_object
       text_object const* base,
       text_object::iterator cut_from,
       text_object::iterator cut_to,
+      text_object const* patch,
       text_object::iterator patch_from,
       text_object::iterator patch_to
     ):
