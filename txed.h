@@ -195,6 +195,20 @@ class text_replacement : public text_object
       return string_segment(new_begin, end);
     }
 
+    static string_segment adjust_end(segment_map::value_type const& v, int new_end_offset) {
+      // just aliases for readability
+      auto const& end_offset = v.first;
+      auto const& segment = v.second;
+      auto const& begin = segment.first;
+      auto const& end = segment.second;
+
+      assert(new_end_offset <= end_offset);
+
+      auto new_end = end - end_offset + new_end_offset;
+
+      return string_segment(begin, new_end);
+    }
+
     static segment_map make_segment_map(
       text_object const* base,
       int cut_from,
@@ -246,20 +260,59 @@ class text_replacement : public text_object
       }
       else
       {
-        // fix the begin of the last segment of the patch
+        auto adjusted_first_patch_segment = adjust_begin(*first_patch_segment_it, patch_from);
 
-        // add segments of the patch
+        auto adjusted_first_patch_segment_length =
+          adjusted_first_patch_segment.second - adjusted_first_patch_segment.first;
 
-        // fix the end of the last segment of the patch
+        current_position += adjusted_first_patch_segment_length;
+
+        if (adjusted_first_patch_segment_length != 0) {
+          result[current_position] = adjusted_first_patch_segment;
+        }
+
+        auto current_patch_segment_it = first_patch_segment_it + 1;
+ 
+        while (current_patch_segment_it != last_patch_segment_it) {
+          current_position += current_patch_segment_it->first;
+          result[current_position] = current_patch_segment_it->second;
+          ++current_patch_segment_it;
+        }
+
+        if (last_patch_segment_it != patch_map.end()) {
+          auto adjusted_last_patch_segment = adjust_end(*last_patch_segment_it, patch_to);
+
+          auto adjusted_last_patch_segment_length =
+            adjusted_last_patch_segment.second - adjusted_last_patch_segment.first;
+
+          if (adjusted_last_patch_segment_length != 0) {
+            current_position += adjusted_last_patch_segment_length;
+            result[current_position] = adjusted_last_patch_segment;
+          }
+        }
       }
 
       // fix the begin of the first segment of the postfix
       if (first_postfix_segment_it != base_map.end())
       {
-        auto adjusted first_posftix_segment = adjust_begin(*first_patch_segment_it, cut_to);
-      }
+        auto adjusted_first_posftix_segment = adjust_begin(*first_postfix_segment_it, cut_to);
 
-      // add segments of the postfix
+        auto adjusted_first_posftix_segment_length =
+          adjusted_first_posftix_segment.second - adjusted_first_posftix_segment.first;
+
+        if (adjusted_first_posftix_segment_length != 0) {
+          current_position += adjusted_first_posftix_segment_length;
+          result[current_position] = adjusted_first_posftix_segment;
+        }
+
+        auto current_postfix_segment_it = first_patch_segment_it + 1;
+
+        while (current_postfix_segment_it != base_map.end()) {
+          current_position += current_postfix_segment_it->second - current_postfix_segment_it->first;
+          result[current_position] = current_postfix_segment_it->second;
+          ++current_postfix_segment_it;
+        }
+      }
 
       return result;
     }
