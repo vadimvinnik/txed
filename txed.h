@@ -180,6 +180,7 @@ class text_replacement : public text_object
     int const m_prefix_length;
     int const m_patch_length;
     int const m_length;
+    segment_map const m_segments;
 
     static string_segment adjust_begin(segment_map::value_type const& v, int new_begin_offset) {
       // just aliases for readability
@@ -335,7 +336,17 @@ class text_replacement : public text_object
       m_postfix_begin(cut_to),
       m_prefix_length(cut_from - base->begin()),
       m_patch_length(patch_to - patch_from),
-      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from)),
+      m_segments(
+        make_segment_map(
+          base,
+          cut_from - base->begin(),
+          cut_to - base->begin(),
+          patch,
+          patch_from - patch->begin(),
+          patch_to - patch->begin()
+        )
+      )
     {
     }
 
@@ -352,7 +363,17 @@ class text_replacement : public text_object
       m_postfix_begin(base->cbegin() + cut_to),
       m_prefix_length(cut_from),
       m_patch_length(patch_to - patch_from),
-      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from)),
+      m_segments(
+        make_segment_map(
+          base,
+          cut_from,
+          cut_to,
+          patch,
+          patch_from,
+          patch_to
+        )
+      )
     {}
 
     virtual int length() const { return m_length; }
@@ -370,7 +391,7 @@ class text_replacement : public text_object
       return *current;
     }
 
-    virtual segment_map segments() const { return segment_map(); }
+    virtual segment_map segments() const { return m_segments; }
 };
 
 bool text_iterator::is_begin() const { return is_at(0); }
