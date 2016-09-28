@@ -157,15 +157,17 @@ class text_string : public text_object {
     virtual std::string to_string() const { return m_value; }
 
     virtual segment_map segments() const {
-      return segment_map {
-        std::make_pair(
-          m_value.length(),
-          string_segment(
-            m_value.cbegin(),
-            m_value.cend()
-          )
-        )
-      };
+      return m_value.cend() != m_value.cbegin()
+        ? segment_map {
+            std::make_pair(
+              m_value.length(),
+              string_segment(
+                m_value.cbegin(),
+                m_value.cend()
+              )
+            )
+          }
+        : segment_map();
     }
 };
 
@@ -179,6 +181,20 @@ class text_replacement : public text_object
     int const m_patch_length;
     int const m_length;
 
+    static string_segment adjust_begin(segment_map::value_type const& v, int new_begin_offset) {
+      // just aliases for readability
+      auto const& end_offset = v.first;
+      auto const& segment = v.second;
+      auto const& begin = segment.first;
+      auto const& end = segment.second;
+
+      assert(new_begin_offset >= end_offset - (end - begin));
+
+      auto new_begin = end - end_offset + new_begin_offset;
+
+      return string_segment(new_begin, end);
+    }
+
     static segment_map make_segment_map(
       text_object const* base,
       int cut_from,
@@ -187,6 +203,11 @@ class text_replacement : public text_object
       int patch_from,
       int patch_to
     ) {
+      assert(cut_from <= base->length());
+      assert(cut_to <= base->length());
+      assert(patch_from <= patch->length());
+      assert(patch_to <= patch->length());
+
       auto const base_map = base->segments();
       auto const patch_map = patch->segments();
 
@@ -198,28 +219,32 @@ class text_replacement : public text_object
       auto const first_postfix_segment_it = base_map.lower_bound(cut_to);
 
       segment_map result(base_map.begin(), last_prefix_segment_it);
-      // add segments of the prefix
-      
+
+      assert(last_prefix_segment_it != base_map.end() || base->length() == 0);
+
       if (last_prefix_segment_it != base_map.end())
       {
-        // fix the end of the last segment of the prefix
-        auto last_prefix_segment_end_shift = cut_from - last_prefix_segment_it->first;
+        auto adjusted_last_prefix_segment = adjust_end(*last_prefix_segment_it, cut_from);
 
-        auto last_prefix_segment_end = last_prefix_segment_it->second.second + last_prefix_segment_end_shift;
+        assert(adjusted_last_prefix_segment.first != adjusted_last_prefix_segment.last);
 
-        assert(last_prefix_segment_end <= last_prefix_segment_it->second.second);
-
-        result[cut_from] = string_segment(last_prefix_segment_it->second.first, last_prefix_segment_end);
-      }
-      else
-      {
-        assert(base->length() == 0);
-        assert(cut_from == 0);
-        assert(cut_to == 0);
+        result[cut_from] = adjusted_last_prefix_segment;
       }
 
       auto current_position = cut_from;
-      if (first_patch_segment_it != last_patch_segment_it)
+      if (first_patch_segment_it == last_patch_segment_it)
+      {
+        if (cut_to != cut_from)
+        {
+          auto patch_begin = first_postfix_segment_it->second.first + cut_from;
+          auto patch_end = first_postfix_segment_it->second.first + cut_to;
+
+          current_position += patch_to - patch_from;
+
+          result[current_position] = string_segment(patch_begin, patch_end);
+        }
+      }
+      else
       {
         // fix the begin of the last segment of the patch
 
@@ -229,6 +254,10 @@ class text_replacement : public text_object
       }
 
       // fix the begin of the first segment of the postfix
+      if (first_postfix_segment_it != base_map.end())
+      {
+        auto adjusted first_posftix_segment = adjust_begin(*first_patch_segment_it, cut_to);
+      }
 
       // add segments of the postfix
 
