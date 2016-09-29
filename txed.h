@@ -251,8 +251,8 @@ class text_replacement : public text_object
       {
         if (cut_to != cut_from)
         {
-          auto patch_begin = first_postfix_segment_it->second.first + cut_from;
-          auto patch_end = first_postfix_segment_it->second.first + cut_to;
+          auto patch_begin = first_postfix_segment_it->second.first + patch_from;
+          auto patch_end = first_postfix_segment_it->second.first + patch_to;
 
           current_position += patch_to - patch_from;
 
