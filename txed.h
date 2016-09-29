@@ -105,6 +105,24 @@ typedef std::pair<std::string::const_iterator, std::string::const_iterator> stri
 
 typedef std::map<int, string_segment> segment_map;
 
+class rope_view {
+  private:
+    segment_map const* const m_base;
+    int const m_begin;
+    int const m_end;
+    segment_map::const_iterator const m_first_segment_it;
+    segment_map::const_iterator const m_last_segment_it;
+
+  public:
+    rope_view(segment_map const* base, int begin, int end):
+      m_base(base),
+      m_begin(begin),
+      m_end(end),
+      m_first_segment_it(base->lower_bound(begin)),
+      m_last_segment_it(base->lower_bound(end))
+    {}
+};
+
 class text_object {
   private:
     text_iterator create_iterator(int i) const;
