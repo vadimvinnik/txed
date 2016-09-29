@@ -18,6 +18,8 @@
 #include <stdexcept>
 #include <string>
 
+#include <boost/operators.hpp>
+
 namespace text_edit {
 
 class text_object;
@@ -43,12 +45,8 @@ class text_out_of_range: public std::out_of_range {
     int length() const { return m_length; }
 };
 
-class text_iterator: public std::iterator<
-  std::random_access_iterator_tag,
-  char,
-  ptrdiff_t,
-  char const*,
-  char const&>
+class text_iterator:
+  public boost::random_access_iterator_helper<text_iterator, const char, int, char const*, char const&>
 {
   friend class text_object;
 
@@ -76,34 +74,21 @@ class text_iterator: public std::iterator<
 
     int current_index() const { return m_current_index; }
 
+    // extra functionality not required by the standard definition of iterator
     bool is_begin() const;
     bool is_end() const;
     void move_to_begin();
     void move_to_end();
 
-    text_iterator& operator=(text_iterator const& it) = default;
-
     char const& operator*() const;
-    char const& operator[](int d) const { return *(*this + d); }
 
     bool operator==(text_iterator const& it) const { return diff(it) == 0; }
-    bool operator!=(text_iterator const& it) const { return diff(it) != 0; }
     bool operator< (text_iterator const& it) const { return diff(it) <  0; }
-    bool operator> (text_iterator const& it) const { return diff(it) >  0; }
-    bool operator<=(text_iterator const& it) const { return diff(it) <= 0; }
-    bool operator>=(text_iterator const& it) const { return diff(it) >= 0; }
 
-    text_iterator& operator++() { move(+1); return *this; }
-    text_iterator& operator--() { move(-1); return *this; }
-
-    text_iterator operator++(int) { text_iterator t(*this); move(+1); return t; }
-    text_iterator operator--(int) { text_iterator t(*this); move(-1); return t; }
-
+    text_iterator& operator++()      { move(+1); return *this; }
+    text_iterator& operator--()      { move(-1); return *this; }
     text_iterator& operator+=(int d) { move(+d); return *this; }
     text_iterator& operator-=(int d) { move(-d); return *this; }
-
-    text_iterator operator+(int d) const { text_iterator t(*this); return t += d; }
-    text_iterator operator-(int d) const { text_iterator t(*this); return t -= d; }
 
     ptrdiff_t operator-(text_iterator const& it) const { return diff(it); }
 
