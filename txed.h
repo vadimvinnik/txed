@@ -101,8 +101,6 @@ class text_iterator:
     }
 };
 
-static text_iterator operator+(int d, text_iterator const& it) { return it + d; }
-
 typedef std::pair<std::string::const_iterator, std::string::const_iterator> string_segment;
 
 typedef std::map<int, string_segment> segment_map;
