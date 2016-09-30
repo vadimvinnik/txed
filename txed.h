@@ -160,7 +160,16 @@ class rope_view {
     {}
 
     iterator begin() const { return make_iterator(m_base->lower_bound(m_transformer.new_begin_offset())); }
-    iterator end() const { return make_iterator(m_base->lower_bound(m_transformer.new_end_offset())); }
+
+    iterator end() const {
+      auto it = m_base->lower_bound(m_transformer.new_end_offset());
+      if (it != m_base->end())
+      {
+        ++it;
+      }
+
+      return make_iterator(it);
+    }
 };
 
 class text_object {
