@@ -118,6 +118,9 @@ class segment_transformer {
       m_new_end_offset(new_end_offset)
     {}
 
+    int new_begin_offset() const { return m_new_begin_offset; }
+    int new_end_offset() const { return m_new_end_offset; }
+
     segment_map::value_type operator()(segment_map::value_type const& x) const {
       auto const& end_offset = x.first;
       auto const& begin = x.second.first;
@@ -138,16 +141,26 @@ class segment_transformer {
     }
 };
 
-typedef boost::transform_iterator<segment_transformer, segment_map::const_iterator> rope_view_iterator;
-
 class rope_view {
+  public:
+    typedef boost::transform_iterator<segment_transformer, segment_map::const_iterator> iterator;
+
   private:
     segment_map const* const m_base;
+    segment_transformer const m_transformer;
+
+    iterator make_iterator(segment_map::const_iterator const& it) const {
+      return boost::make_transform_iterator(it, m_transformer);
+    }
 
   public:
     rope_view(segment_map const* base, int begin, int end):
-      m_base(base)
+      m_base(base),
+      m_transformer(begin, end)
     {}
+
+    iterator begin() const { return make_iterator(m_base->lower_bound(m_transformer.new_begin_offset())); }
+    iterator end() const { return make_iterator(m_base->lower_bound(m_transformer.new_end_offset())); }
 };
 
 class text_object {
