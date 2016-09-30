@@ -12,6 +12,7 @@
 //  vadim.vinnik@gmail.com
 //  2016
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <map>
@@ -19,6 +20,7 @@
 #include <string>
 
 #include <boost/operators.hpp>
+#include <boost/iterator/transform_iterator.hpp>
 
 namespace text_edit {
 
@@ -105,21 +107,46 @@ typedef std::pair<std::string::const_iterator, std::string::const_iterator> stri
 
 typedef std::map<int, string_segment> segment_map;
 
+class segment_transformer {
+  private:
+    int const m_new_begin_offset;
+    int const m_new_end_offset;
+
+  public:
+    segment_transformer(int new_begin_offset, int new_end_offset):
+      m_new_begin_offset(new_begin_offset),
+      m_new_end_offset(new_end_offset)
+    {}
+
+    segment_map::value_type operator()(segment_map::value_type const& x) const {
+      auto const& end_offset = x.first;
+      auto const& begin = x.second.first;
+      auto const& end = x.second.second;
+      auto const length = end - begin;
+      auto const begin_offset = end_offset - length;
+
+      assert(end_offset >= m_new_begin_offset);
+      assert(begin_offset <= m_new_end_offset);
+
+      auto begin_shift = std::max(0L, m_new_begin_offset - begin_offset);
+      auto end_shift = std::min(0, m_new_end_offset - end_offset);
+      auto new_begin = begin + begin_shift;
+      auto new_end = end + end_shift;
+      auto new_end_offset = end_offset - m_new_begin_offset + end_shift;
+
+      return std::make_pair(new_end_offset, string_segment(new_begin, new_end));
+    }
+};
+
+typedef boost::transform_iterator<segment_transformer, segment_map::const_iterator> rope_view_iterator;
+
 class rope_view {
   private:
     segment_map const* const m_base;
-    int const m_begin;
-    int const m_end;
-    segment_map::const_iterator const m_first_segment_it;
-    segment_map::const_iterator const m_last_segment_it;
 
   public:
     rope_view(segment_map const* base, int begin, int end):
-      m_base(base),
-      m_begin(begin),
-      m_end(end),
-      m_first_segment_it(base->lower_bound(begin)),
-      m_last_segment_it(base->lower_bound(end))
+      m_base(base)
     {}
 };
 
