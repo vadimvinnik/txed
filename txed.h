@@ -19,8 +19,10 @@
 #include <stdexcept>
 #include <string>
 
-#include <boost/operators.hpp>
 #include <boost/iterator/transform_iterator.hpp>
+#include <boost/operators.hpp>
+#include <boost/range/iterator_range_core.hpp>
+#include <boost/range/join.hpp>
 
 namespace text_edit {
 
@@ -28,7 +30,7 @@ class text_object;
 
 class iterator_mismatch: public std::domain_error {
   public:
-    iterator_mismatch(): std::domain_error("Cannot compare iterators pointing to different containers") {}
+    iterator_mismatch(): std::domain_error("Cannot subtract or compare iterators pointing to different containers") {}
 };
 
 class text_out_of_range: public std::out_of_range {
@@ -107,19 +109,22 @@ typedef std::pair<std::string::const_iterator, std::string::const_iterator> stri
 
 typedef std::map<int, string_segment> segment_map;
 
-class segment_transformer {
+class segment_trimmer {
   private:
-    int const m_new_begin_offset;
-    int const m_new_end_offset;
+    int m_new_begin_offset;
+    int m_new_end_offset;
+    int m_shift;
 
   public:
-    segment_transformer(int new_begin_offset, int new_end_offset):
+    segment_trimmer(int new_begin_offset, int new_end_offset, int shift):
       m_new_begin_offset(new_begin_offset),
-      m_new_end_offset(new_end_offset)
+      m_new_end_offset(new_end_offset),
+      m_shift(shift)
     {}
 
     int new_begin_offset() const { return m_new_begin_offset; }
     int new_end_offset() const { return m_new_end_offset; }
+    int shift() const { return m_shift; }
 
     segment_map::value_type operator()(segment_map::value_type const& x) const {
       auto const& end_offset = x.first;
@@ -135,7 +140,7 @@ class segment_transformer {
       auto end_shift = std::min(0, m_new_end_offset - end_offset);
       auto new_begin = begin + begin_shift;
       auto new_end = end + end_shift;
-      auto new_end_offset = end_offset - m_new_begin_offset + end_shift;
+      auto new_end_offset = end_offset - m_new_begin_offset + end_shift + m_shift;
 
       return std::make_pair(new_end_offset, string_segment(new_begin, new_end));
     }
@@ -143,26 +148,26 @@ class segment_transformer {
 
 class rope_view {
   public:
-    typedef boost::transform_iterator<segment_transformer, segment_map::const_iterator> iterator;
+    typedef boost::transform_iterator<segment_trimmer, segment_map::const_iterator> iterator;
 
   private:
-    segment_map const* const m_base;
-    segment_transformer const m_transformer;
+    segment_map const* m_base;
+    segment_trimmer m_trimmer;
 
     iterator make_iterator(segment_map::const_iterator const& it) const {
-      return boost::make_transform_iterator(it, m_transformer);
+      return boost::make_transform_iterator(it, m_trimmer);
     }
 
   public:
-    rope_view(segment_map const* base, int begin, int end):
+    rope_view(segment_map const* base, int begin, int end, int shift):
       m_base(base),
-      m_transformer(begin, end)
+      m_trimmer(begin, end, shift)
     {}
 
-    iterator begin() const { return make_iterator(m_base->lower_bound(m_transformer.new_begin_offset())); }
+    iterator begin() const { return make_iterator(m_base->lower_bound(m_trimmer.new_begin_offset())); }
 
     iterator end() const {
-      auto it = m_base->lower_bound(m_transformer.new_end_offset());
+      auto it = m_base->lower_bound(m_trimmer.new_end_offset());
       if (it != m_base->end())
       {
         ++it;
@@ -232,34 +237,6 @@ class text_replacement : public text_object
     int const m_length;
     segment_map const m_segments;
 
-    static string_segment adjust_begin(segment_map::value_type const& v, int new_begin_offset) {
-      // just aliases for readability
-      auto const& end_offset = v.first;
-      auto const& segment = v.second;
-      auto const& begin = segment.first;
-      auto const& end = segment.second;
-
-      assert(new_begin_offset >= end_offset - (end - begin));
-
-      auto new_begin = end - end_offset + new_begin_offset;
-
-      return string_segment(new_begin, end);
-    }
-
-    static string_segment adjust_end(segment_map::value_type const& v, int new_end_offset) {
-      // just aliases for readability
-      auto const& end_offset = v.first;
-      auto const& segment = v.second;
-      auto const& begin = segment.first;
-      auto const& end = segment.second;
-
-      assert(new_end_offset <= end_offset);
-
-      auto new_end = end - end_offset + new_end_offset;
-
-      return string_segment(begin, new_end);
-    }
-
     static segment_map make_segment_map(
       text_object const* base,
       int cut_from,
@@ -276,98 +253,17 @@ class text_replacement : public text_object
       auto const base_map = base->segments();
       auto const patch_map = patch->segments();
 
-      auto const last_prefix_segment_it = base_map.lower_bound(cut_from);
+      auto const prefix_view = rope_view(&base_map, 0, cut_from, 0);
+      auto const patch_view = rope_view(&patch_map, patch_from, patch_to, cut_from);
+      auto const postfix_view = rope_view(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
 
-      auto const first_patch_segment_it = patch_map.lower_bound(patch_from);
-      auto const last_patch_segment_it = patch_map.lower_bound(patch_to);
+      auto prefix_range = boost::make_iterator_range(prefix_view.begin(), prefix_view.end());
+      auto patch_range = boost::make_iterator_range(patch_view.begin(), patch_view.end());
+      auto postfix_range = boost::make_iterator_range(postfix_view.begin(), postfix_view.end());
 
-      auto const first_postfix_segment_it = base_map.lower_bound(cut_to);
+      auto const joined = boost::join(prefix_range, boost::join(patch_range, postfix_range));
 
-      segment_map result(base_map.begin(), last_prefix_segment_it);
-
-      assert(last_prefix_segment_it != base_map.end() || base->length() == 0);
-
-      if (last_prefix_segment_it != base_map.end())
-      {
-        auto adjusted_last_prefix_segment = adjust_end(*last_prefix_segment_it, cut_from);
-
-        assert(adjusted_last_prefix_segment.first != adjusted_last_prefix_segment.second);
-
-        result[cut_from] = adjusted_last_prefix_segment;
-      }
-
-      auto current_position = cut_from;
-      if (first_patch_segment_it == last_patch_segment_it)
-      {
-        if (cut_to != cut_from)
-        {
-          auto patch_begin = first_postfix_segment_it->second.first + patch_from;
-          auto patch_end = first_postfix_segment_it->second.first + patch_to;
-
-          current_position += patch_to - patch_from;
-
-          result[current_position] = string_segment(patch_begin, patch_end);
-        }
-      }
-      else
-      {
-        auto adjusted_first_patch_segment = adjust_begin(*first_patch_segment_it, patch_from);
-
-        auto adjusted_first_patch_segment_length =
-          adjusted_first_patch_segment.second - adjusted_first_patch_segment.first;
-
-        current_position += adjusted_first_patch_segment_length;
-
-        if (adjusted_first_patch_segment_length != 0) {
-          result[current_position] = adjusted_first_patch_segment;
-        }
-
-        auto current_patch_segment_it = first_patch_segment_it;
-        ++current_patch_segment_it;
- 
-        while (current_patch_segment_it != last_patch_segment_it) {
-          current_position +=
-            current_patch_segment_it->second.second - current_patch_segment_it->second.first;
-          result[current_position] = current_patch_segment_it->second;
-          ++current_patch_segment_it;
-        }
-
-        if (last_patch_segment_it != patch_map.end()) {
-          auto adjusted_last_patch_segment = adjust_end(*last_patch_segment_it, patch_to);
-
-          auto adjusted_last_patch_segment_length =
-            adjusted_last_patch_segment.second - adjusted_last_patch_segment.first;
-
-          if (adjusted_last_patch_segment_length != 0) {
-            current_position += adjusted_last_patch_segment_length;
-            result[current_position] = adjusted_last_patch_segment;
-          }
-        }
-      }
-
-      // fix the begin of the first segment of the postfix
-      if (first_postfix_segment_it != base_map.end())
-      {
-        auto adjusted_first_posftix_segment = adjust_begin(*first_postfix_segment_it, cut_to);
-
-        auto adjusted_first_posftix_segment_length =
-          adjusted_first_posftix_segment.second - adjusted_first_posftix_segment.first;
-
-        if (adjusted_first_posftix_segment_length != 0) {
-          current_position += adjusted_first_posftix_segment_length;
-          result[current_position] = adjusted_first_posftix_segment;
-        }
-
-        auto current_postfix_segment_it = first_postfix_segment_it;
-        ++current_postfix_segment_it;
-
-        while (current_postfix_segment_it != base_map.end()) {
-          current_position +=
-            current_postfix_segment_it->second.second - current_postfix_segment_it->second.first;
-          result[current_position] = current_postfix_segment_it->second;
-          ++current_postfix_segment_it;
-        }
-      }
+      segment_map result(joined.begin(), joined.end());
 
       return result;
     }
