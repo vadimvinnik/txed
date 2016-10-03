@@ -164,12 +164,15 @@ class rope_view {
       m_trimmer(begin, end, shift)
     {}
 
-    iterator begin() const { return make_iterator(m_base->lower_bound(m_trimmer.new_begin_offset())); }
+    iterator begin() const { return make_iterator(m_base->upper_bound(m_trimmer.new_begin_offset())); }
 
     iterator end() const {
-      auto it = m_base->lower_bound(m_trimmer.new_end_offset());
-      assert(it != m_base->end());
-      ++it;
+      auto it = m_base->upper_bound(m_trimmer.new_end_offset());
+
+      if (it != m_base->end()) {
+        ++it;
+      }
+
       return make_iterator(it);
     }
 
@@ -206,7 +209,7 @@ class text_object {
     }
 
     char const& at(int i) const {
-      auto segment_it = m_segments.lower_bound(i);
+      auto segment_it = m_segments.upper_bound(i);
 
       if (segment_it == m_segments.end())
       {
