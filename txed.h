@@ -172,6 +172,8 @@ class rope_view {
       ++it;
       return make_iterator(it);
     }
+
+    std::pair<iterator, iterator> range() const { return std::make_pair(begin(), end()); }
 };
 
 class text_object {
@@ -254,11 +256,13 @@ class text_replacement : public text_object
       auto const patch_view = rope_view(&patch_map, patch_from, patch_to, cut_from);
       auto const postfix_view = rope_view(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
 
-      auto prefix_range = boost::make_iterator_range(prefix_view.begin(), prefix_view.end());
-      auto patch_range = boost::make_iterator_range(patch_view.begin(), patch_view.end());
-      auto postfix_range = boost::make_iterator_range(postfix_view.begin(), postfix_view.end());
-
-      auto const joined = boost::join(prefix_range, boost::join(patch_range, postfix_range));
+      auto const joined = boost::join(
+        prefix_view.range(),
+        boost::join(
+          patch_view.range(),
+          postfix_view.range()
+        )
+      );
 
       segment_map result(joined.begin(), joined.end());
 
