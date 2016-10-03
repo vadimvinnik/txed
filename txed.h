@@ -180,6 +180,11 @@ class text_object {
   private:
     text_iterator create_iterator(int i) const;
 
+  protected:
+    segment_map const m_segments;
+
+    text_object(segment_map const& segments): m_segments(segments) {}
+
   public:
     typedef text_iterator iterator;
 
@@ -188,144 +193,19 @@ class text_object {
     iterator end()     const { return create_iterator(    length()); }
     iterator cend()    const { return create_iterator(    length()); }
 
-    virtual int length() const = 0;
-    virtual char const& at(int i) const = 0;
-    virtual std::string to_string() const { return std::string(cbegin(), cend()); }
+    segment_map const& segments() const { return m_segments; }
 
-    virtual segment_map segments() const = 0;
-};
+    int length() const {
+      auto it = m_segments.end();
 
-text_iterator text_object::create_iterator(int i) const {
-  return text_iterator(this, i);
-}
+      if (it == m_segments.begin()) return 0;
 
-class text_string : public text_object {
-  private:
-    std::string const m_value;
+      --it;
 
-  public:
-    text_string(std::string const& value): m_value(value) {}
-
-    virtual int length() const { return m_value.length(); }
-    virtual char const& at(int i) const { return m_value.at(i); }
-    virtual std::string to_string() const { return m_value; }
-
-    virtual segment_map segments() const {
-      return m_value.cend() != m_value.cbegin()
-        ? segment_map {
-            std::make_pair(
-              m_value.length(),
-              string_segment(
-                m_value.cbegin(),
-                m_value.cend()
-              )
-            )
-          }
-        : segment_map();
-    }
-};
-
-class text_replacement : public text_object
-{
-  private:
-    text_object const* const m_base;
-    text_object::iterator const m_patch_begin;
-    text_object::iterator const m_postfix_begin;
-    int const m_prefix_length;
-    int const m_patch_length;
-    int const m_length;
-    segment_map const m_segments;
-
-    static segment_map make_segment_map(
-      text_object const* base,
-      int cut_from,
-      int cut_to,
-      text_object const* patch,
-      int patch_from,
-      int patch_to
-    ) {
-      assert(cut_from <= base->length());
-      assert(cut_to <= base->length());
-      assert(patch_from <= patch->length());
-      assert(patch_to <= patch->length());
-
-      auto const base_map = base->segments();
-      auto const patch_map = patch->segments();
-
-      auto const prefix_view = rope_view(&base_map, 0, cut_from, 0);
-      auto const patch_view = rope_view(&patch_map, patch_from, patch_to, cut_from);
-      auto const postfix_view = rope_view(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
-
-      auto const joined = boost::join(
-        prefix_view.range(),
-        boost::join(
-          patch_view.range(),
-          postfix_view.range()
-        )
-      );
-
-      segment_map result(joined.begin(), joined.end());
-
-      return result;
+      return it->first;
     }
 
-  public:
-    text_replacement(
-      text_object const* base,
-      text_object::iterator cut_from,
-      text_object::iterator cut_to,
-      text_object const* patch,
-      text_object::iterator patch_from,
-      text_object::iterator patch_to
-    ):
-      m_base(base),
-      m_patch_begin(patch_from),
-      m_postfix_begin(cut_to),
-      m_prefix_length(cut_from - base->begin()),
-      m_patch_length(patch_to - patch_from),
-      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from)),
-      m_segments(
-        make_segment_map(
-          base,
-          cut_from - base->begin(),
-          cut_to - base->begin(),
-          patch,
-          patch_from - patch->begin(),
-          patch_to - patch->begin()
-        )
-      )
-    {
-    }
-
-    text_replacement(
-      text_object const* base,
-      int cut_from,
-      int cut_to,
-      text_object const* patch,
-      int patch_from,
-      int patch_to
-    ):
-      m_base(base),
-      m_patch_begin(patch->begin() + patch_from),
-      m_postfix_begin(base->cbegin() + cut_to),
-      m_prefix_length(cut_from),
-      m_patch_length(patch_to - patch_from),
-      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from)),
-      m_segments(
-        make_segment_map(
-          base,
-          cut_from,
-          cut_to,
-          patch,
-          patch_from,
-          patch_to
-        )
-      )
-    {}
-
-    virtual int length() const { return m_length; }
-
-    virtual char const& at(int i) const {
+    char const& at(int i) const {
       auto segment_it = m_segments.lower_bound(i);
 
       if (segment_it == m_segments.end())
@@ -341,7 +221,132 @@ class text_replacement : public text_object
       return *atom_it;
     }
 
-    virtual segment_map segments() const { return m_segments; }
+    std::string to_string() const { return std::string(cbegin(), cend()); }
+};
+
+text_iterator text_object::create_iterator(int i) const {
+  return text_iterator(this, i);
+}
+
+class text_string : public text_object {
+  private:
+    std::string const m_value;
+
+    static segment_map string_to_rope(std::string const& value) {
+      return value.cend() != value.cbegin()
+        ? segment_map {
+            std::make_pair(
+              value.length(),
+              string_segment(
+                value.cbegin(),
+                value.cend()
+              )
+            )
+          }
+        : segment_map();
+    }
+
+  public:
+    text_string(std::string const& value):
+      text_object(string_to_rope(value)),
+      m_value(value)
+    {}
+};
+
+class text_replacement : public text_object
+{
+  private:
+    text_object const* const m_base;
+    text_object::iterator const m_patch_begin;
+    text_object::iterator const m_postfix_begin;
+    int const m_prefix_length;
+    int const m_patch_length;
+    int const m_length;
+
+    static segment_map make_segment_map(
+      text_object const* base,
+      int cut_from,
+      int cut_to,
+      text_object const* patch,
+      int patch_from,
+      int patch_to
+    ) {
+      assert(cut_from <= base->length());
+      assert(cut_to <= base->length());
+      assert(patch_from <= patch->length());
+      assert(patch_to <= patch->length());
+
+      auto const& base_map = base->segments();
+      auto const& patch_map = patch->segments();
+
+      auto const prefix_view = rope_view(&base_map, 0, cut_from, 0);
+      auto const patch_view = rope_view(&patch_map, patch_from, patch_to, cut_from);
+      auto const postfix_view = rope_view(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
+
+      auto const joined = boost::join(
+        prefix_view.range(),
+        boost::join(
+          patch_view.range(),
+          postfix_view.range()
+        )
+      );
+
+      return segment_map(joined.begin(), joined.end());
+    }
+
+  public:
+    text_replacement(
+      text_object const* base,
+      text_object::iterator cut_from,
+      text_object::iterator cut_to,
+      text_object const* patch,
+      text_object::iterator patch_from,
+      text_object::iterator patch_to
+    ):
+      text_object(
+        make_segment_map(
+          base,
+          cut_from - base->begin(),
+          cut_to - base->begin(),
+          patch,
+          patch_from - patch->begin(),
+          patch_to - patch->begin()
+        )
+      ),
+      m_base(base),
+      m_patch_begin(patch_from),
+      m_postfix_begin(cut_to),
+      m_prefix_length(cut_from - base->begin()),
+      m_patch_length(patch_to - patch_from),
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+    {
+    }
+
+    text_replacement(
+      text_object const* base,
+      int cut_from,
+      int cut_to,
+      text_object const* patch,
+      int patch_from,
+      int patch_to
+    ):
+      text_object(
+        make_segment_map(
+          base,
+          cut_from,
+          cut_to,
+          patch,
+          patch_from,
+          patch_to
+        )
+      ),
+      m_base(base),
+      m_patch_begin(patch->begin() + patch_from),
+      m_postfix_begin(base->cbegin() + cut_to),
+      m_prefix_length(cut_from),
+      m_patch_length(patch_to - patch_from),
+      m_length(base->length() - (cut_to - cut_from) + (patch_to - patch_from))
+    {}
 };
 
 bool text_iterator::is_begin() const { return is_at(0); }
