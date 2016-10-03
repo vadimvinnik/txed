@@ -326,16 +326,19 @@ class text_replacement : public text_object
     virtual int length() const { return m_length; }
 
     virtual char const& at(int i) const {
-      auto const i_in_patch = i - m_prefix_length;
-      auto const i_in_postfix = i_in_patch - m_patch_length;
+      auto segment_it = m_segments.lower_bound(i);
 
-      auto const current = i_in_postfix >= 0
-        ? m_postfix_begin + i_in_postfix
-        : i_in_patch >= 0
-          ? m_patch_begin + i_in_patch
-          : m_base->cbegin() + i;
+      if (segment_it == m_segments.end())
+      {
+        throw text_out_of_range(i, length());
+      }
 
-      return *current;
+      auto const& segment_end_offset = segment_it->first;
+      auto const& segment_end = segment_it->second.second;
+
+      auto atom_it = segment_end - (segment_end_offset - i);
+
+      return *atom_it;
     }
 
     virtual segment_map segments() const { return m_segments; }
