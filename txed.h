@@ -151,7 +151,7 @@ class rope_view {
     typedef boost::transform_iterator<segment_trimmer, segment_map::const_iterator> iterator;
 
   private:
-    segment_map const* m_base;
+    segment_map const* const m_base;
     segment_trimmer m_trimmer;
 
     iterator make_iterator(segment_map::const_iterator const& it) const {
@@ -168,11 +168,8 @@ class rope_view {
 
     iterator end() const {
       auto it = m_base->lower_bound(m_trimmer.new_end_offset());
-      if (it != m_base->end())
-      {
-        ++it;
-      }
-
+      assert(it != m_base->end());
+      ++it;
       return make_iterator(it);
     }
 };
