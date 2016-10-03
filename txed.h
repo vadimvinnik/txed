@@ -107,16 +107,18 @@ class text_iterator:
 
 typedef std::pair<std::string::const_iterator, std::string::const_iterator> string_segment;
 
-typedef std::map<int, string_segment> segment_map;
+typedef std::map<int, string_segment> rope;
 
-class segment_trimmer {
+typedef rope::value_type rope_node;
+
+class rope_node_trimmer {
   private:
     int m_new_begin_offset;
     int m_new_end_offset;
     int m_shift;
 
   public:
-    segment_trimmer(int new_begin_offset, int new_end_offset, int shift):
+    rope_node_trimmer(int new_begin_offset, int new_end_offset, int shift):
       m_new_begin_offset(new_begin_offset),
       m_new_end_offset(new_end_offset),
       m_shift(shift)
@@ -126,7 +128,7 @@ class segment_trimmer {
     int new_end_offset() const { return m_new_end_offset; }
     int shift() const { return m_shift; }
 
-    segment_map::value_type operator()(segment_map::value_type const& x) const {
+    rope_node operator()(rope_node const& x) const {
       auto const& end_offset = x.first;
       auto const& begin = x.second.first;
       auto const& end = x.second.second;
@@ -142,24 +144,24 @@ class segment_trimmer {
       auto new_end = end + end_shift;
       auto new_end_offset = end_offset - m_new_begin_offset + end_shift + m_shift;
 
-      return std::make_pair(new_end_offset, string_segment(new_begin, new_end));
+      return rope_node(new_end_offset, string_segment(new_begin, new_end));
     }
 };
 
-class rope_view {
+class rope_trimmed_range {
   public:
-    typedef boost::transform_iterator<segment_trimmer, segment_map::const_iterator> iterator;
+    typedef boost::transform_iterator<rope_node_trimmer, rope::const_iterator> iterator;
 
   private:
-    segment_map const* const m_base;
-    segment_trimmer m_trimmer;
+    rope const* const m_base;
+    rope_node_trimmer m_trimmer;
 
-    iterator make_iterator(segment_map::const_iterator const& it) const {
+    iterator make_iterator(rope::const_iterator const& it) const {
       return boost::make_transform_iterator(it, m_trimmer);
     }
 
   public:
-    rope_view(segment_map const* base, int begin, int end, int shift):
+    rope_trimmed_range(rope const* base, int begin, int end, int shift):
       m_base(base),
       m_trimmer(begin, end, shift)
     {}
@@ -181,27 +183,27 @@ class rope_view {
 
 class text_object {
   private:
-    text_iterator create_iterator(int i) const;
+    text_iterator create_iterator(int i) const { return text_iterator(this, i); }
 
   protected:
-    segment_map const m_segments;
+    rope const m_rope;
 
-    text_object(segment_map const& segments): m_segments(segments) {}
+    text_object(rope const& rope): m_rope(rope) {}
 
   public:
     typedef text_iterator iterator;
 
-    iterator begin()   const { return create_iterator(           0); }
-    iterator cbegin()  const { return create_iterator(           0); }
-    iterator end()     const { return create_iterator(    length()); }
-    iterator cend()    const { return create_iterator(    length()); }
+    iterator begin()   const { return create_iterator(       0); }
+    iterator end()     const { return create_iterator(length()); }
+    iterator cbegin()  const { return begin(); }
+    iterator cend()    const { return end();   }
 
-    segment_map const& segments() const { return m_segments; }
+    rope const& get_rope() const { return m_rope; }
 
     int length() const {
-      auto it = m_segments.end();
+      auto it = m_rope.end();
 
-      if (it == m_segments.begin()) return 0;
+      if (it == m_rope.begin()) return 0;
 
       --it;
 
@@ -209,9 +211,9 @@ class text_object {
     }
 
     char const& at(int i) const {
-      auto segment_it = m_segments.upper_bound(i);
+      auto segment_it = m_rope.upper_bound(i);
 
-      if (segment_it == m_segments.end())
+      if (segment_it == m_rope.end())
       {
         throw text_out_of_range(i, length());
       }
@@ -227,17 +229,13 @@ class text_object {
     std::string to_string() const { return std::string(cbegin(), cend()); }
 };
 
-text_iterator text_object::create_iterator(int i) const {
-  return text_iterator(this, i);
-}
-
 class text_string : public text_object {
   private:
     std::string const m_value;
 
-    static segment_map string_to_rope(std::string const& value) {
+    static rope string_to_rope(std::string const& value) {
       return value.cend() != value.cbegin()
-        ? segment_map {
+        ? rope {
             std::make_pair(
               value.length(),
               string_segment(
@@ -246,7 +244,7 @@ class text_string : public text_object {
               )
             )
           }
-        : segment_map();
+        : rope();
     }
 
   public:
@@ -266,7 +264,7 @@ class text_replacement : public text_object
     int const m_patch_length;
     int const m_length;
 
-    static segment_map make_segment_map(
+    static rope make_rope(
       text_object const* base,
       int cut_from,
       int cut_to,
@@ -279,12 +277,12 @@ class text_replacement : public text_object
       assert(patch_from <= patch->length());
       assert(patch_to <= patch->length());
 
-      auto const& base_map = base->segments();
-      auto const& patch_map = patch->segments();
+      auto const& base_map = base->get_rope();
+      auto const& patch_map = patch->get_rope();
 
-      auto const prefix_view = rope_view(&base_map, 0, cut_from, 0);
-      auto const patch_view = rope_view(&patch_map, patch_from, patch_to, cut_from);
-      auto const postfix_view = rope_view(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
+      auto const prefix_view = rope_trimmed_range(&base_map, 0, cut_from, 0);
+      auto const patch_view = rope_trimmed_range(&patch_map, patch_from, patch_to, cut_from);
+      auto const postfix_view = rope_trimmed_range(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
 
       auto const joined = boost::join(
         prefix_view.range(),
@@ -294,7 +292,7 @@ class text_replacement : public text_object
         )
       );
 
-      return segment_map(joined.begin(), joined.end());
+      return rope(joined.begin(), joined.end());
     }
 
   public:
@@ -307,7 +305,7 @@ class text_replacement : public text_object
       text_object::iterator patch_to
     ):
       text_object(
-        make_segment_map(
+        make_rope(
           base,
           cut_from - base->begin(),
           cut_to - base->begin(),
@@ -334,7 +332,7 @@ class text_replacement : public text_object
       int patch_to
     ):
       text_object(
-        make_segment_map(
+        make_rope(
           base,
           cut_from,
           cut_to,
