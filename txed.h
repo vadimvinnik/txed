@@ -138,11 +138,11 @@ class rope_node_trimmer {
       assert(end_offset >= m_new_begin_offset);
       assert(begin_offset <= m_new_end_offset);
 
-      auto begin_shift = std::max(0L, m_new_begin_offset - begin_offset);
-      auto end_shift = std::min(0, m_new_end_offset - end_offset);
-      auto new_begin = begin + begin_shift;
-      auto new_end = end + end_shift;
-      auto new_end_offset = end_offset - m_new_begin_offset + end_shift + m_shift;
+      auto const begin_shift = std::max(0L, m_new_begin_offset - begin_offset);
+      auto const end_shift = std::min(0, m_new_end_offset - end_offset);
+      auto const new_begin = begin + begin_shift;
+      auto const new_end = end + end_shift;
+      auto const new_end_offset = end_offset - m_new_begin_offset + end_shift + m_shift;
 
       return rope_node(new_end_offset, string_segment(new_begin, new_end));
     }
