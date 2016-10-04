@@ -26,6 +26,7 @@
 
 namespace text_edit {
 
+template<class TString>
 class text_object;
 
 class iterator_mismatch: public std::domain_error {
@@ -49,34 +50,41 @@ class text_out_of_range: public std::out_of_range {
     int length() const { return m_length; }
 };
 
+template<class TString>
 class text_iterator:
-  public boost::random_access_iterator_helper<text_iterator, const char, int, char const*, char const&>
+  public boost::random_access_iterator_helper<
+    text_iterator<TString>,
+    typename TString::value_type,
+    typename TString::difference_type,
+    typename TString::const_pointer,
+    typename TString::const_reference
+  >
 {
-  friend class text_object;
+  friend class text_object<TString>;
 
   private:
-    text_object const* m_target;
-    int m_current_index;
+    text_object<TString> const* m_target;
+    typename TString::size_type m_current_index;
 
-    text_iterator(text_object const* target, int current_index):
+    text_iterator(text_object<TString> const* target, typename TString::size_type current_index):
       m_target(target),
       m_current_index(current_index)
     {}
 
-    ptrdiff_t diff(text_iterator const& it) const {
+    typename TString::difference_type diff(text_iterator<TString> const& it) const {
       assert_comparable(*this, it);
       return m_current_index - it.m_current_index;
     }
 
-    bool is_at(int k) const { return m_current_index == k; }
+    bool is_at(typename TString::size_type k) const { return m_current_index == k; }
 
-    void move(int d) { m_current_index += d; }
-    void move_to(int k) { m_current_index = k; }
+    void move(typename TString::difference_type d) { m_current_index += d; }
+    void move_to(typename TString::size_type k) { m_current_index = k; }
 
   public:
     text_iterator(): m_target(nullptr) {}
 
-    int current_index() const { return m_current_index; }
+    typename TString::size_type current_index() const { return m_current_index; }
 
     // extra functionality not required by the standard definition of iterator
     bool is_begin() const;
@@ -84,19 +92,19 @@ class text_iterator:
     void move_to_begin();
     void move_to_end();
 
-    char const& operator*() const;
+    typename TString::const_reference operator*() const;
 
-    bool operator==(text_iterator const& it) const { return diff(it) == 0; }
-    bool operator< (text_iterator const& it) const { return diff(it) <  0; }
+    bool operator==(text_iterator<TString> const& it) const { return diff(it) == 0; }
+    bool operator< (text_iterator<TString> const& it) const { return diff(it) <  0; }
 
-    text_iterator& operator++()      { move(+1); return *this; }
-    text_iterator& operator--()      { move(-1); return *this; }
-    text_iterator& operator+=(int d) { move(+d); return *this; }
-    text_iterator& operator-=(int d) { move(-d); return *this; }
+    text_iterator& operator++() { move(+1); return *this; }
+    text_iterator& operator--() { move(-1); return *this; }
+    text_iterator& operator+=(typename TString::difference_type d) { move(+d); return *this; }
+    text_iterator& operator-=(typename TString::difference_type d) { move(-d); return *this; }
 
-    ptrdiff_t operator-(text_iterator const& it) const { return diff(it); }
+    typename TString::difference_type operator-(text_iterator<TString> const& it) const { return diff(it); }
 
-    static void assert_comparable(text_iterator const& i, text_iterator const& j)
+    static void assert_comparable(text_iterator<TString> const& i, text_iterator<TString> const& j)
     {
       if (i.m_target != j.m_target)
       {
@@ -105,30 +113,38 @@ class text_iterator:
     }
 };
 
-typedef std::pair<std::string::const_iterator, std::string::const_iterator> string_segment;
+template<class TString>
+using string_segment = std::pair<typename TString::const_iterator, typename TString::const_iterator>;
 
-typedef std::map<int, string_segment> rope;
+template<class TString>
+using rope = std::map<typename TString::size_type, string_segment<TString> >;
 
-typedef rope::value_type rope_node;
+template<class TString>
+using rope_node = typename rope<TString>::value_type;
 
+template<class TString>
 class rope_node_trimmer {
   private:
-    int m_new_begin_offset;
-    int m_new_end_offset;
-    int m_shift;
+    typename TString::size_type m_new_begin_offset;
+    typename TString::size_type m_new_end_offset;
+    typename TString::difference_type m_shift;
 
   public:
-    rope_node_trimmer(int new_begin_offset, int new_end_offset, int shift):
+    rope_node_trimmer(
+      typename TString::size_type new_begin_offset,
+      typename TString::size_type new_end_offset,
+      typename TString::difference_type shift
+    ):
       m_new_begin_offset(new_begin_offset),
       m_new_end_offset(new_end_offset),
       m_shift(shift)
     {}
 
-    int new_begin_offset() const { return m_new_begin_offset; }
-    int new_end_offset() const { return m_new_end_offset; }
-    int shift() const { return m_shift; }
+    typename TString::size_type new_begin_offset() const { return m_new_begin_offset; }
+    typename TString::size_type new_end_offset() const { return m_new_end_offset; }
+    typename TString::difference_type shift() const { return m_shift; }
 
-    rope_node operator()(rope_node const& x) const {
+    rope_node<TString> operator()(rope_node<TString> const& x) const {
       auto const& end_offset = x.first;
       auto const& begin = x.second.first;
       auto const& end = x.second.second;
@@ -138,30 +154,43 @@ class rope_node_trimmer {
       assert(end_offset >= m_new_begin_offset);
       assert(begin_offset <= m_new_end_offset);
 
-      auto const begin_shift = std::max(0L, m_new_begin_offset - begin_offset);
-      auto const end_shift = std::min(0, m_new_end_offset - end_offset);
+      auto const begin_shift = std::max<typename TString::difference_type>(0, m_new_begin_offset - begin_offset);
+      auto const end_shift = std::min<typename TString::difference_type>(0, m_new_end_offset - end_offset);
       auto const new_begin = begin + begin_shift;
       auto const new_end = end + end_shift;
       auto const new_end_offset = end_offset - m_new_begin_offset + end_shift + m_shift;
 
-      return rope_node(new_end_offset, string_segment(new_begin, new_end));
+      return rope_node<TString>(new_end_offset, string_segment<TString>(new_begin, new_end));
     }
 };
 
+template<class TString>
 class rope_trimmed_range {
   public:
-    typedef boost::transform_iterator<rope_node_trimmer, rope::const_iterator> iterator;
+    typedef
+      boost::transform_iterator<
+        rope_node_trimmer<TString>,
+        typename rope<TString>::const_iterator,
+        typename rope<TString>::const_reference,
+        typename rope<TString>::value_type
+      >
+      iterator;
 
   private:
-    rope const* const m_base;
-    rope_node_trimmer m_trimmer;
+    rope<TString> const* const m_base;
+    rope_node_trimmer<TString> m_trimmer;
 
-    iterator make_iterator(rope::const_iterator const& it) const {
+    iterator make_iterator(typename rope<TString>::const_iterator const& it) const {
       return boost::make_transform_iterator(it, m_trimmer);
     }
 
   public:
-    rope_trimmed_range(rope const* base, int begin, int end, int shift):
+    rope_trimmed_range(
+      rope<TString> const* base, 
+      typename TString::size_type begin,
+      typename TString::size_type end,
+      typename TString::difference_type shift
+    ):
       m_base(base),
       m_trimmer(begin, end, shift)
     {}
@@ -181,26 +210,24 @@ class rope_trimmed_range {
     std::pair<iterator, iterator> range() const { return std::make_pair(begin(), end()); }
 };
 
+template<class TString>
 class text_object {
   private:
-    text_iterator create_iterator(int i) const { return text_iterator(this, i); }
+    text_iterator<TString> create_iterator(typename TString::size_type i) const {
+      return text_iterator<TString>(this, i);
+    }
 
   protected:
-    rope const m_rope;
+    rope<TString> const m_rope;
 
-    text_object(rope const& rope): m_rope(rope) {}
+    text_object(rope<TString> const& rope): m_rope(rope) {}
 
   public:
-    typedef text_iterator iterator;
+    typedef text_iterator<TString> iterator;
 
-    iterator begin()   const { return create_iterator(       0); }
-    iterator end()     const { return create_iterator(length()); }
-    iterator cbegin()  const { return begin(); }
-    iterator cend()    const { return end();   }
+    rope<TString> const& get_rope() const { return m_rope; }
 
-    rope const& get_rope() const { return m_rope; }
-
-    int length() const {
+    typename TString::size_type length() const {
       auto it = m_rope.end();
 
       if (it == m_rope.begin()) return 0;
@@ -210,7 +237,12 @@ class text_object {
       return it->first;
     }
 
-    char const& at(int i) const {
+    iterator begin()   const { return create_iterator(       0); }
+    iterator end()     const { return create_iterator(length()); }
+    iterator cbegin()  const { return begin(); }
+    iterator cend()    const { return end();   }
+
+    typename TString::const_reference at(typename TString::size_type i) const {
       auto segment_it = m_rope.upper_bound(i);
 
       if (segment_it == m_rope.end())
@@ -226,51 +258,53 @@ class text_object {
       return *atom_it;
     }
 
-    std::string to_string() const { return std::string(cbegin(), cend()); }
+    TString to_string() const { return TString(cbegin(), cend()); }
 };
 
-class text_string : public text_object {
+template<class TString>
+class text_string : public text_object<TString> {
   private:
-    std::string const m_value;
+    TString const m_value;
 
-    static rope string_to_rope(std::string const& value) {
+    static rope<TString> string_to_rope(TString const& value) {
       return value.cend() != value.cbegin()
-        ? rope {
+        ? rope<TString> {
             std::make_pair(
               value.length(),
-              string_segment(
+              string_segment<TString>(
                 value.cbegin(),
                 value.cend()
               )
             )
           }
-        : rope();
+        : rope<TString>();
     }
 
   public:
-    text_string(std::string const& value):
-      text_object(string_to_rope(value)),
+    text_string(TString const& value):
+      text_object<TString>(string_to_rope(value)),
       m_value(value)
     {}
 };
 
-class text_replacement : public text_object
+template<class TString>
+class text_replacement : public text_object<TString>
 {
   private:
-    text_object const* const m_base;
-    text_object::iterator const m_patch_begin;
-    text_object::iterator const m_postfix_begin;
-    int const m_prefix_length;
-    int const m_patch_length;
-    int const m_length;
+    text_object<TString> const* const m_base;
+    typename text_object<TString>::iterator const m_patch_begin;
+    typename text_object<TString>::iterator const m_postfix_begin;
+    typename TString::size_type const m_prefix_length;
+    typename TString::size_type const m_patch_length;
+    typename TString::size_type const m_length;
 
-    static rope make_rope(
-      text_object const* base,
-      int cut_from,
-      int cut_to,
-      text_object const* patch,
-      int patch_from,
-      int patch_to
+    static rope<TString> make_rope(
+      text_object<TString> const* base,
+      typename TString::size_type cut_from,
+      typename TString::size_type cut_to,
+      text_object<TString> const* patch,
+      typename TString::size_type patch_from,
+      typename TString::size_type patch_to
     ) {
       assert(cut_from <= base->length());
       assert(cut_to <= base->length());
@@ -280,9 +314,9 @@ class text_replacement : public text_object
       auto const& base_map = base->get_rope();
       auto const& patch_map = patch->get_rope();
 
-      auto const prefix_view = rope_trimmed_range(&base_map, 0, cut_from, 0);
-      auto const patch_view = rope_trimmed_range(&patch_map, patch_from, patch_to, cut_from);
-      auto const postfix_view = rope_trimmed_range(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
+      auto const prefix_view = rope_trimmed_range<TString>(&base_map, 0, cut_from, 0);
+      auto const patch_view = rope_trimmed_range<TString>(&patch_map, patch_from, patch_to, cut_from);
+      auto const postfix_view = rope_trimmed_range<TString>(&base_map, cut_to, base->length(), cut_from + patch_to - patch_from);
 
       auto const joined = boost::join(
         prefix_view.range(),
@@ -292,19 +326,19 @@ class text_replacement : public text_object
         )
       );
 
-      return rope(joined.begin(), joined.end());
+      return rope<TString>(joined.begin(), joined.end());
     }
 
   public:
     text_replacement(
-      text_object const* base,
-      text_object::iterator cut_from,
-      text_object::iterator cut_to,
-      text_object const* patch,
-      text_object::iterator patch_from,
-      text_object::iterator patch_to
+      text_object<TString> const* base,
+      typename text_object<TString>::iterator cut_from,
+      typename text_object<TString>::iterator cut_to,
+      text_object<TString> const* patch,
+      typename text_object<TString>::iterator patch_from,
+      typename text_object<TString>::iterator patch_to
     ):
-      text_object(
+      text_object<TString>(
         make_rope(
           base,
           cut_from - base->begin(),
@@ -324,14 +358,14 @@ class text_replacement : public text_object
     }
 
     text_replacement(
-      text_object const* base,
-      int cut_from,
-      int cut_to,
-      text_object const* patch,
-      int patch_from,
-      int patch_to
+      text_object<TString> const* base,
+      typename TString::size_type cut_from,
+      typename TString::size_type cut_to,
+      text_object<TString> const* patch,
+      typename TString::size_type patch_from,
+      typename TString::size_type patch_to
     ):
-      text_object(
+      text_object<TString>(
         make_rope(
           base,
           cut_from,
@@ -350,11 +384,12 @@ class text_replacement : public text_object
     {}
 };
 
-bool text_iterator::is_begin() const { return is_at(0); }
-bool text_iterator::is_end() const { return is_at(m_target->length()); }
-void text_iterator::move_to_begin() { move_to(0); }
-void text_iterator::move_to_end() { move_to(m_target->length()); }
+template<class TString> bool text_iterator<TString>::is_begin() const { return is_at(0); }
+template<class TString> bool text_iterator<TString>::is_end() const { return is_at(m_target->length()); }
+template<class TString> void text_iterator<TString>::move_to_begin() { move_to(0); }
+template<class TString> void text_iterator<TString>::move_to_end() { move_to(m_target->length()); }
 
-char const& text_iterator::operator*() const { return m_target->at(m_current_index); }
+template<class TString>
+typename TString::const_reference text_iterator<TString>::operator*() const { return m_target->at(m_current_index); }
 
 };
