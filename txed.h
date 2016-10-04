@@ -170,9 +170,7 @@ class rope_trimmed_range {
     typedef
       boost::transform_iterator<
         rope_node_trimmer<TString>,
-        typename rope<TString>::const_iterator,
-        typename rope<TString>::const_reference,
-        typename rope<TString>::value_type
+        typename rope<TString>::const_iterator
       >
       iterator;
 
